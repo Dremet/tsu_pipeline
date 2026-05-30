@@ -18,10 +18,15 @@ from dotenv import load_dotenv
 load_dotenv(Path(__file__).parents[2] / ".env")
 
 DB_URL = os.environ["TSU_TEST_POSTGRES_URL"]
-SCHEMA_SQL = (Path(__file__).parents[1] / "migrations" / "001_base_schema.sql").read_text()
+_MIGRATIONS = [
+    Path(__file__).parents[1] / "migrations" / "001_base_schema.sql",
+    Path(__file__).parents[1] / "migrations" / "002_elo_bootstrap.sql",
+    Path(__file__).parents[1] / "migrations" / "003_mart_views.sql",
+]
 
 _DATA_TABLES = [
     "base.elo_history",
+    "base.elo_bootstrap",
     "base.hotlap_laps",
     "base.hotlap_events",
     "base.race_participations",
@@ -34,9 +39,10 @@ _DATA_TABLES = [
 
 @pytest.fixture(scope="session", autouse=True)
 def prepare_db():
-    """Create schema (idempotent) and truncate all data tables once per session."""
+    """Apply all migrations (idempotent) and truncate data tables once per session."""
     with psycopg.connect(DB_URL, autocommit=True) as c:
-        c.execute(SCHEMA_SQL)
+        for migration in _MIGRATIONS:
+            c.execute(migration.read_text())
         c.execute(f"TRUNCATE {', '.join(_DATA_TABLES)} CASCADE")
 
 

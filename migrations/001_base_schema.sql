@@ -91,55 +91,9 @@ CREATE TABLE IF NOT EXISTS base.hotlap_laps (
 );
 
 -- ── Mart views ───────────────────────────────────────────────────────────────
+-- Full definitions live in migrations/003_mart_views.sql.
+-- Here we drop-and-create to ensure idempotent schema setup.
 
-CREATE OR REPLACE VIEW mart.v_race_results AS
-SELECT
-    rp.id              AS participation_id,
-    rs.id              AS session_id,
-    rs.utc_start_time,
-    rs.server,
-    rs.finished_state,
-    rs.track_guid,
-    t.name             AS track_name,
-    t.level_type       AS track_type,
-    rp.steam_id,
-    d.name             AS driver_name,
-    d.flag             AS driver_flag,
-    rp.vehicle_guid,
-    v.name             AS vehicle_name,
-    rp.position,
-    rp.finish_time,
-    rp.laps_completed,
-    rp.is_ai,
-    rp.bot_name,
-    eh.elo_value,
-    eh.elo_delta
-FROM base.race_participations rp
-JOIN base.race_sessions rs ON rp.session_id = rs.id
-JOIN base.tracks t         ON rs.track_guid = t.guid
-LEFT JOIN base.drivers d   ON rp.steam_id = d.steam_id
-LEFT JOIN base.vehicles v  ON rp.vehicle_guid = v.guid
-LEFT JOIN base.elo_history eh ON rp.id = eh.participation_id
-WHERE rp.is_ai = false;
-
-CREATE OR REPLACE VIEW mart.v_hotlap_results AS
-SELECT
-    hl.id          AS lap_id,
-    hl.event_id,
-    he.utc_start_time,
-    he.server,
-    he.track_guid,
-    t.name         AS track_name,
-    hl.steam_id,
-    d.name         AS driver_name,
-    d.flag         AS driver_flag,
-    hl.vehicle_guid,
-    v.name         AS vehicle_name,
-    hl.lap_number,
-    hl.lap_time,
-    hl.sector_times
-FROM base.hotlap_laps hl
-JOIN base.hotlap_events he ON hl.event_id = he.id
-JOIN base.tracks t         ON he.track_guid = t.guid
-JOIN base.drivers d        ON hl.steam_id = d.steam_id
-LEFT JOIN base.vehicles v  ON hl.vehicle_guid = v.guid;
+DROP VIEW IF EXISTS mart.v_driver_profile CASCADE;
+DROP VIEW IF EXISTS mart.v_race_results CASCADE;
+DROP VIEW IF EXISTS mart.v_hotlap_results CASCADE;
