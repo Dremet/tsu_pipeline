@@ -1,0 +1,63 @@
+{
+  "format": 1,
+  "utcStartTimeTicks": 638900000000000001,
+  "utcStartTime": "2025-08-01T18:00:00+00:00",
+  "host": 44444444444444441,
+  "eventType": "Race",
+  "level": {
+    "name": "Silverstone Circuit V1.07",
+    "guid": "silverstone-heat-test",
+    "makerId": 76561198000000010,
+    "levelType": "Circuit"
+  },
+  "finishedState": "Stopped_GivePoints",
+  "players": [
+    {
+      "player": {
+        "name": "DriverA",
+        "id": 76561199000000001,
+        "localIndex": 0,
+        "ai": false,
+        "clan": "",
+        "flag": "Finland"
+      },
+      "vehicle": {"name": "Speedy", "guid": "9-d"},
+      "startPosition": 1
+    },
+    {
+      "player": {
+        "name": "DriverB",
+        "id": 76561199000000002,
+        "localIndex": 1,
+        "ai": false,
+        "clan": "",
+        "flag": "Germany"
+      },
+      "vehicle": {"name": "Speedy", "guid": "9-d"},
+      "startPosition": 2
+    }
+  ],
+  "raceStats": {
+    "maxLaps": 5,
+    "maxTimeWithoutStartTime": 864000000,
+    "startTime": 96600,
+    "hotlapping": false,
+    "raceRanking": {
+      "entries": [
+        {"playerIndex": 0, "lastCheckpoint": 0, "time": 1500000, "lapsCompleted": 5},
+        {"playerIndex": 1, "lastCheckpoint": 0, "time": 1600000, "lapsCompleted": 5}
+      ]
+    },
+    "lapRanking": {
+      "entries": [
+        {"playerIndex": 0, "time": 280000, "cFlags": 0, "lap": 3},
+        {"playerIndex": 1, "time": 295000, "cFlags": 0, "lap": 3}
+      ]
+    },
+    "checkpoints": {
+      "checkpointToSector": [0, -1, 1, -1, 2, -1],
+      "sectorToCheckpoint": [0, 2, 4]
+    },
+    "playerStats": []
+  }
+}

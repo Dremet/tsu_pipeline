@@ -95,19 +95,25 @@ def _get_current_elo_map(conn, steam_ids: list[int]) -> dict:
     return {row[0]: row[1] for row in conn.fetchall()}
 
 
-def update_elo(session_ids: list[str], conn) -> int:
+def update_elo(session_ids: list[str], conn, *, server: str = "heats") -> int:
     """
     Calculate and persist ELO for the given sessions.
 
+    ELO is computed ONLY for Tripleheat sessions (server='heats' by default).
+    Passing a different server is possible but should be deliberate — per
+    project design, Liga-Events do not receive ELO.
+
     Sessions are processed in ascending utc_start_time order.
     Already-calculated sessions (existing elo_history rows) are skipped.
+    Calling update_elo multiple times on the same sessions is idempotent.
 
     Returns the number of new elo_history rows inserted.
     """
     if not session_ids:
         return 0
 
-    # Fetch all sessions + human participants, sorted chronologically
+    # Fetch all sessions + human participants, sorted chronologically.
+    # Filter by server so Event sessions never accidentally get ELO.
     conn.execute(
         """
         SELECT
@@ -126,11 +132,12 @@ def update_elo(session_ids: list[str], conn) -> int:
         FROM base.race_sessions rs
         JOIN base.race_participations rp ON rp.session_id = rs.id
         WHERE rs.id = ANY(%s)
+          AND rs.server = %s
           AND rp.is_ai = false
           AND rp.steam_id IS NOT NULL
         ORDER BY rs.utc_start_time ASC, rs.id
         """,
-        (session_ids,),
+        (session_ids, server),
     )
     rows = conn.fetchall()
     if not rows:

@@ -324,6 +324,28 @@ def load_event(json_path: str | Path, server: str, conn) -> dict:
     """
     data = _read_json(Path(json_path))
 
+    # Guard against empty/null JSON files
+    if data is None:
+        return {
+            "skipped": True,
+            "skip_reason": "null JSON content",
+            "sessions": 0,
+            "participations": 0,
+            "drivers_new": 0,
+            "laps": 0,
+        }
+
+    # Ignore non-race event types (Sumo, Capture, etc. have no raceStats)
+    if "raceStats" not in data:
+        return {
+            "skipped": True,
+            "skip_reason": f"unsupported eventType: {data.get('eventType', 'unknown')}",
+            "sessions": 0,
+            "participations": 0,
+            "drivers_new": 0,
+            "laps": 0,
+        }
+
     valid, reason = validate_event(data)
     if not valid:
         return {

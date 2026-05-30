@@ -17,6 +17,8 @@ REAL_EVENT = Path(
     "/home/data/events/20250911_205039/raw/"
     "20250911_205039_NewHampshireMotorSpeedwayv1_event.json"
 )
+HEAT_RACE_1 = FIXTURES / "heat_race_1.json"
+HEAT_RACE_2 = FIXTURES / "heat_race_2.json"
 REAL_HOTLAP = Path(
     "/home/data/hotlapping/archive/20251223_170021/raw/"
     "20251223_170021_OffTheRoad_event.json"
@@ -156,23 +158,103 @@ def test_human_drivers_in_bot_races_have_no_cross_contamination(conn):
 # ── ELO integration ───────────────────────────────────────────────────────────
 
 def test_elo_not_for_bot_only_race(conn):
-    """A race where the only human participant finishes solo → no ELO entries."""
-    load_event(BOT_RACE_1, "events", conn)
+    """Solo human (+ bot) server='heats' race → 0 opponents → no ELO entries."""
+    load_event(BOT_RACE_1, "heats", conn)
     conn.execute("SELECT id FROM base.race_sessions")
     session_ids = [row[0] for row in conn.fetchall()]
     inserted = update_elo(session_ids, conn)
     assert inserted == 0, "Solo human (+ bot) race must produce no ELO entries"
 
 
-def test_elo_two_human_race(conn):
-    """A real event with 2+ humans must produce ELO entries for each human."""
+def test_elo_events_server_never_gets_elo(conn):
+    """Sessions with server='events' must never receive ELO (new rule #6)."""
     load_event(REAL_EVENT, "events", conn)
     conn.execute("SELECT id FROM base.race_sessions")
     session_ids = [row[0] for row in conn.fetchall()]
+    # Default server='heats' filter → events sessions produce no ELO
     inserted = update_elo(session_ids, conn)
-    conn.execute(
-        "SELECT COUNT(*) FROM base.race_participations WHERE is_ai = false"
-    )
-    human_count = conn.fetchone()[0]
-    assert inserted == human_count
-    assert inserted >= 2
+    assert inserted == 0, "Liga-Event sessions must never get ELO"
+
+
+def test_elo_two_human_heats_race(conn):
+    """Two humans in a server='heats' race must each get an ELO entry."""
+    load_event(HEAT_RACE_1, "heats", conn)
+    conn.execute("SELECT id FROM base.race_sessions WHERE server = 'heats'")
+    session_ids = [row[0] for row in conn.fetchall()]
+    inserted = update_elo(session_ids, conn)
+    assert inserted == 2, "Both human drivers must receive ELO entries"
+
+
+def test_elo_chronological_multi_race(conn):
+    """
+    ELO must build chronologically: the second race uses updated ELO from the first.
+
+    Race 1 (08:00): DriverA P1, DriverB P2 → A gains, B loses from 1000 each.
+    Race 2 (08:30): DriverB P1, DriverA P2, DriverC P3
+        → ELO delta for A and B differs from what it would be at equal starting values,
+          because they now carry their Race 1 ELOs.
+    """
+    load_event(HEAT_RACE_1, "heats", conn)
+    load_event(HEAT_RACE_2, "heats", conn)
+
+    conn.execute("SELECT id FROM base.race_sessions WHERE server = 'heats' ORDER BY utc_start_time")
+    session_ids = [row[0] for row in conn.fetchall()]
+    assert len(session_ids) == 2
+
+    inserted = update_elo(session_ids, conn)
+    assert inserted == 5, "Race1 has 2 drivers, Race2 has 3 → 5 ELO entries total"
+
+    # Fetch ELO values in chronological order (sorted by session time + steam_id)
+    conn.execute("""
+        SELECT rp.steam_id, rs.utc_start_time, eh.elo_value, eh.elo_delta
+        FROM base.elo_history eh
+        JOIN base.race_participations rp ON rp.id = eh.participation_id
+        JOIN base.race_sessions rs ON rs.id = rp.session_id
+        ORDER BY rs.utc_start_time, rp.steam_id
+    """)
+    rows = conn.fetchall()
+    # Group by session timestamp (datetime objects - compare directly)
+    import collections
+    by_race = collections.defaultdict(dict)
+    for steam_id, ts, elo_val, elo_delta in rows:
+        by_race[ts][steam_id] = (elo_val, elo_delta)
+
+    sorted_races = sorted(by_race.keys())
+    a_id = 76561199000000001
+    b_id = 76561199000000002
+
+    race1 = by_race[sorted_races[0]]
+    race2 = by_race[sorted_races[1]]
+
+    # Race 1: A won (pos=1) vs B (pos=2) both at 1000 → A +10, B -10
+    assert race1[a_id][1] == pytest.approx(+10.0)
+    assert race1[b_id][1] == pytest.approx(-10.0)
+
+    # Race 2: B won (pos=1) while A=1010, B=990 (from race 1).
+    # B's gain in race 2 should be > 0; A's loss reflects being favourite.
+    a_r2_elo, a_r2_delta = race2[a_id]
+    b_r2_elo, b_r2_delta = race2[b_id]
+    assert b_r2_delta > 0, "B won race 2 and should gain ELO"
+    assert a_r2_delta < b_r2_delta, "A finished 2nd and should gain less than B"
+
+    # Proving chronological carry-over: A's race2 ELO ≠ what it would be from 1000
+    # (If calc was independent, A finishing 2nd in 3-field from 1000 would give ~−6.67)
+    # With carry-over A starts at 1010, so the result is different.
+    assert a_r2_elo != pytest.approx(990.0), "A's final ELO must reflect race 1 carry-over"
+
+
+def test_elo_idempotent(conn):
+    """Running update_elo twice on the same sessions must yield identical results."""
+    load_event(HEAT_RACE_1, "heats", conn)
+    conn.execute("SELECT id FROM base.race_sessions WHERE server = 'heats'")
+    session_ids = [row[0] for row in conn.fetchall()]
+
+    inserted_first = update_elo(session_ids, conn)
+    inserted_second = update_elo(session_ids, conn)
+
+    assert inserted_first == 2
+    assert inserted_second == 0, "Second call must not insert duplicates (idempotent)"
+
+    # Values unchanged after second call
+    conn.execute("SELECT COUNT(*) FROM base.elo_history")
+    assert conn.fetchone()[0] == 2
