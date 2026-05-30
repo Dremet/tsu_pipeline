@@ -1,0 +1,63 @@
+{
+  "format": 1,
+  "utcStartTimeTicks": 638932000000000002,
+  "utcStartTime": "2025-09-10T14:00:00+00:00",
+  "host": 33333333333333333,
+  "eventType": "Race",
+  "level": {
+    "name": "Monza Circuit",
+    "guid": "monza-test-guid",
+    "makerId": 76561198000000003,
+    "levelType": "Circuit"
+  },
+  "finishedState": "Stopped_GivePoints",
+  "players": [
+    {
+      "player": {
+        "name": "Jurgen",
+        "id": 76561198000001002,
+        "localIndex": 0,
+        "ai": false,
+        "clan": "",
+        "flag": "Netherlands"
+      },
+      "vehicle": {"name": "Speedy", "guid": "9-d"},
+      "startPosition": 1
+    },
+    {
+      "player": {
+        "name": "Peter",
+        "id": 0,
+        "localIndex": 1,
+        "ai": true,
+        "clan": "",
+        "flag": ""
+      },
+      "vehicle": {"name": "Speedy", "guid": "9-d"},
+      "startPosition": 2
+    }
+  ],
+  "raceStats": {
+    "maxLaps": 5,
+    "maxTimeWithoutStartTime": 864000000,
+    "startTime": 96600,
+    "hotlapping": false,
+    "raceRanking": {
+      "entries": [
+        {"playerIndex": 0, "lastCheckpoint": 0, "time": 2000000, "lapsCompleted": 5},
+        {"playerIndex": 1, "lastCheckpoint": 0, "time": 2100000, "lapsCompleted": 5}
+      ]
+    },
+    "lapRanking": {
+      "entries": [
+        {"playerIndex": 0, "time": 355000, "cFlags": 0, "lap": 3},
+        {"playerIndex": 1, "time": 390000, "cFlags": 0, "lap": 3}
+      ]
+    },
+    "checkpoints": {
+      "checkpointToSector": [0, -1, 1, -1, 2, -1],
+      "sectorToCheckpoint": [0, 2, 4]
+    },
+    "playerStats": []
+  }
+}

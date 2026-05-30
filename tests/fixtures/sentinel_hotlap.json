@@ -1,0 +1,73 @@
+{
+  "format": 1,
+  "utcStartTimeTicks": 638932000000000000,
+  "utcStartTime": "2025-09-10T10:00:00+00:00",
+  "host": 11111111111111111,
+  "eventType": "Race",
+  "level": {
+    "name": "LimeRock Park GP",
+    "guid": "limerick-test-guid",
+    "makerId": 76561198000000001,
+    "levelType": "Circuit"
+  },
+  "finishedState": "Finished",
+  "players": [
+    {
+      "player": {
+        "name": "TestDriver",
+        "id": 76561198000000099,
+        "localIndex": 0,
+        "ai": false,
+        "clan": "",
+        "flag": "Germany"
+      },
+      "vehicle": {
+        "name": "Speedy",
+        "guid": "9-d"
+      },
+      "startPosition": 1
+    }
+  ],
+  "raceStats": {
+    "maxLaps": 10,
+    "maxTimeWithoutStartTime": 3000000,
+    "startTime": 60000,
+    "hotlapping": true,
+    "raceRanking": {
+      "entries": [
+        {
+          "playerIndex": 0,
+          "lastCheckpoint": 0,
+          "time": 0,
+          "lapsCompleted": -1
+        }
+      ]
+    },
+    "lapRanking": {
+      "entries": [
+        {
+          "playerIndex": 0,
+          "time": 900000000,
+          "cFlags": 0,
+          "lap": 0
+        }
+      ]
+    },
+    "checkpoints": {
+      "checkpointToSector": [0, -1, -1, 1, -1, -1, 2, -1, -1],
+      "sectorToCheckpoint": [0, 3, 6]
+    },
+    "playerStats": [
+      {
+        "startTime": 60000,
+        "lapsToFinish": 10,
+        "checkpointTimes": [
+          {
+            "cFlags": 0,
+            "times": []
+          }
+        ]
+      }
+    ]
+  }
+}

@@ -1,0 +1,63 @@
+{
+  "format": 1,
+  "utcStartTimeTicks": 638932000000000001,
+  "utcStartTime": "2025-09-10T12:00:00+00:00",
+  "host": 22222222222222222,
+  "eventType": "Race",
+  "level": {
+    "name": "Silverstone Circuit",
+    "guid": "silverstone-test-guid",
+    "makerId": 76561198000000002,
+    "levelType": "Circuit"
+  },
+  "finishedState": "Finished",
+  "players": [
+    {
+      "player": {
+        "name": "Dremet",
+        "id": 76561198000001001,
+        "localIndex": 0,
+        "ai": false,
+        "clan": "TSU",
+        "flag": "Germany"
+      },
+      "vehicle": {"name": "Speedy", "guid": "9-d"},
+      "startPosition": 1
+    },
+    {
+      "player": {
+        "name": "Peter",
+        "id": 0,
+        "localIndex": 1,
+        "ai": true,
+        "clan": "",
+        "flag": ""
+      },
+      "vehicle": {"name": "Speedy", "guid": "9-d"},
+      "startPosition": 2
+    }
+  ],
+  "raceStats": {
+    "maxLaps": 3,
+    "maxTimeWithoutStartTime": 864000000,
+    "startTime": 96600,
+    "hotlapping": false,
+    "raceRanking": {
+      "entries": [
+        {"playerIndex": 0, "lastCheckpoint": 0, "time": 1149496, "lapsCompleted": 3},
+        {"playerIndex": 1, "lastCheckpoint": 0, "time": 1250000, "lapsCompleted": 3}
+      ]
+    },
+    "lapRanking": {
+      "entries": [
+        {"playerIndex": 0, "time": 324354, "cFlags": 0, "lap": 2},
+        {"playerIndex": 1, "time": 380000, "cFlags": 0, "lap": 2}
+      ]
+    },
+    "checkpoints": {
+      "checkpointToSector": [0, -1, 1, -1, 2, -1],
+      "sectorToCheckpoint": [0, 2, 4]
+    },
+    "playerStats": []
+  }
+}
