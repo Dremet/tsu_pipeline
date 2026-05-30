@@ -69,16 +69,23 @@ def _calc_elo_for_session(
 
 
 def _get_current_elo_map(conn, steam_ids: list[int]) -> dict:
-    """Return {steam_id: latest_elo_value} for the given drivers."""
+    """
+    Return {steam_id: latest_elo_value} for the given drivers.
+
+    Priority:
+      1. Most recent elo_history entry (computed by this pipeline)
+      2. elo_bootstrap value (imported from old racing DB)
+      3. START_ELO (1000) — handled by the caller via dict.get()
+    """
     if not steam_ids:
         return {}
     conn.execute(
         """
-        WITH ranked AS (
+        WITH live AS (
             SELECT
                 rp.steam_id,
                 eh.elo_value,
-                rs.utc_start_time,
+                rs.utc_start_time AS ts,
                 ROW_NUMBER() OVER (
                     PARTITION BY rp.steam_id
                     ORDER BY rs.utc_start_time DESC
@@ -87,10 +94,23 @@ def _get_current_elo_map(conn, steam_ids: list[int]) -> dict:
             JOIN base.race_participations rp ON rp.id = eh.participation_id
             JOIN base.race_sessions rs ON rs.id = rp.session_id
             WHERE rp.steam_id = ANY(%s)
+        ),
+        live_latest AS (
+            SELECT steam_id, elo_value FROM live WHERE rn = 1
+        ),
+        bootstrap AS (
+            SELECT steam_id, elo_value
+            FROM base.elo_bootstrap
+            WHERE steam_id = ANY(%s)
         )
-        SELECT steam_id, elo_value FROM ranked WHERE rn = 1
+        SELECT
+            COALESCE(ll.steam_id, b.steam_id) AS steam_id,
+            COALESCE(ll.elo_value, b.elo_value) AS elo_value
+        FROM bootstrap b
+        FULL OUTER JOIN live_latest ll USING (steam_id)
+        WHERE COALESCE(ll.steam_id, b.steam_id) IS NOT NULL
         """,
-        (steam_ids,),
+        (steam_ids, steam_ids),
     )
     return {row[0]: row[1] for row in conn.fetchall()}
 
