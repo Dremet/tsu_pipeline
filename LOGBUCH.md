@@ -338,4 +338,119 @@ rechnet ab dem Stichtag weiter.
 
 ---
 
-*Ende Session 2026-05-31 Teil 2*
+## Session 2026-05-31 — Teil 3 (interaktiv mit André)
+
+**Ziel:** OE-4 schließen, TEST-DB wiederherstellen, move-Script für Tripleheat-Server anlegen.
+
+### OE-4 — Timezone-Bug entdeckt und behoben
+
+Read-only-Prüfung der 3 fraglichen Rennen vom 29.5. ergab: kein Strukturfehler,
+aber ein echter Timezone-Bug im Migrations-Script.
+
+**Befund:**
+- `tsu.elo_heat.last_timestamp` ist `timestamp WITHOUT time zone` (Wert = UTC, kein TZ-Marker).
+- psycopg3 gibt ihn als naive datetime zurück.
+- PostgreSQL (Server: `Europe/Berlin`, UTC+2) interpretiert naive datetimes als
+  Lokalzeit → speichert `19:41:47+02` = **17:41:47 UTC** statt korrekter **19:41:47 UTC**.
+- Die Sessions aus den JSON-Dateien haben `utcStartTime = 2026-05-29T19:41:47+00:00`
+  = **19:41:47 UTC** = `21:41:47+02`.
+- Ergebnis: Stichtag war 2 Stunden zu früh → alle 3 Rennen (19:05–19:41 UTC)
+  wären von `update_elo` als "neu" eingestuft worden → Doppelzählung.
+
+**Fix:** `migrate_elo_history.py` — `row[6].replace(tzinfo=timezone.utc)` vor dem INSERT.
+Nach Fix: Stichtag = `2026-05-29 21:41:47+02` = `2026-05-29 19:41:47 UTC` ✓  
+Letzte Session = `2026-05-29 21:41:47+02` ✓ — identisch, alle 3 Rennen geblockt.
+
+OE-4 als KEIN PROBLEM geschlossen (war Timezone-Irrtum im ursprünglichen Eintrag +
+echter Timezone-Bug im Code — beides jetzt behoben).
+
+### Schritt 1 — TEST-DB wiederhergestellt
+
+TEST-DB war leer (Session-Reset). Erprobter Ablauf wiederholt:
+
+```
+load_folder('/home/data/history_triple_heat_hammock', 'heats', ...)
+→ 318 Dateien, 305 geladen, 13 übersprungen (null-JSON), 0 Fehler
+→ 305 race_sessions, 3.669 participations, 120 drivers
+
+migrate_elo_history.py --apply
+→ 120 drivers upserted, 120 elo_bootstrap upserted
+→ Stichtag (korrekt): 2026-05-29 19:41:47 UTC
+```
+
+Alle 27 Tests weiterhin grün.
+
+### Schritt 2 — move-Script für Tripleheat-Server angelegt
+
+In `tsura_server_scripts/heat/server/config/Scripts/`:
+
+**Neue Datei: `move_raw_files.sh`** (analog zu events/hotlapping)
+- Verschiebt `eventstats.json`, `eventstats.details.log`, `sessionstats.json`
+  nach `/home/data/heats/{TIMESTAMP}/raw/{TIMESTAMP}_{Track}_event.json` etc.
+- Setzt Dateiberechtigungen für `data`-User (chgrp tsu / chmod 774)
+- Schreibt Trigger `/home/data/new_heat_files.trigger` für die Pipeline
+
+**Geändert: `run_event_end.sh`**  
+Auf Python-Broadcast + Hotlapping-Check + Aufruf von `move_raw_files.sh` verschlankt.
+Doppelte Datei-Move-Logik entfernt.
+
+**Geändert: `eventend.src`**  
+Logging ergänzt: `/cmd run_event_end.sh >event_end.log 2>&1` (analog Events).
+
+**Deployment-Anleitung (für den Moment des Server-Umzugs):**
+
+Der Tripleheat-Server läuft aktuell auf dem alten racing-Server
+(185.170.113.38) als User `heat`. Beim Umzug auf carrot:
+
+1. Dedicated Server auf carrot einrichten (analog hotlapping/events-User).
+2. `tsura_server_scripts/heat/server/config/Scripts/` auf den neuen Server
+   deployen (ersetzte Scripts: `eventend.src`, `run_event_end.sh`, plus neue
+   `move_raw_files.sh`).
+3. Sicherstellen, dass `/home/data/heats/` auf carrot existiert und der
+   heat-Server-User in Gruppe `tsu` ist (für chgrp-Berechtigungen).
+4. Sicherstellen, dass `/home/data/new_heat_files.trigger` als Trigger-Datei
+   von der Pipeline (run_pipeline.sh / Pipeline-Daemon auf carrot) ausgewertet
+   wird.
+5. `jq` auf dem Server installiert (für Track-Name-Extraktion in move_raw_files.sh).
+6. Ersten Testlauf nach Rennen manuell prüfen:
+   - Logs in `event_end.log` und `move_raw_files.log` im Scripts-Verzeichnis.
+   - Dateien in `/home/data/heats/{TIMESTAMP}/raw/` vorhanden?
+   - Trigger geschrieben?
+7. `update_elo` läuft automatisch für server='heats' nach Trigger.
+   Ergebnis prüfen: `SELECT COUNT(*) FROM base.elo_history;` sollte nach
+   erstem echten Rennen > 0 sein.
+8. Erst wenn alles läuft: tsu_analyzer auf altem racing-Server deaktivieren
+   (cron-Zeile auskommentieren), dann Server abschalten.
+
+### Stand
+
+```
+git (tsu_pipeline):          89f371e (Timezone-Fix + OE-4)
+git (tsura_server_scripts):  ausstehend (nach Commit)
+Tests:                        27/27 grün
+TEST-DB:
+  base.race_sessions       305 (server='heats', historische Tripleheats)
+  base.race_participations 3.669
+  base.drivers             120
+  base.elo_bootstrap       120
+  base.elo_history         0 (leer, Bootstrap ist der Stand)
+  Stichtag:                2026-05-29 19:41:47 UTC ✓
+```
+
+### Nächste Schritte
+
+**Prio 1 — Tripleheat-Server-Umzug:**
+- move-Script ist bereit (im Repo). Deployment nach obiger Anleitung.
+- Pipeline-Trigger auf carrot für `new_heat_files.trigger` aktivieren.
+
+**Prio 2 — Phase 2 (tsura2-Website):**
+- `WEBSITE_ANBINDUNG.md` zeigt, welche mart-Views tsura2 lesen soll.
+- `mart.v_hotlap_sessions` noch anlegen.
+
+**Prio 3 — Technische Schulden:**
+- OE-1: Option B umsetzen (synthetische elo_history-Einträge statt elo_bootstrap)
+  nach Migration.
+
+---
+
+*Ende Session 2026-05-31 Teil 3*
