@@ -663,4 +663,63 @@ crontab -e  # tsu_analyzer-Zeile auskommentieren
 
 ---
 
-*Ende Session 2026-05-31 Teil 4*
+## Session 2026-05-31 — Teil 5 (interaktiv mit André) — Abschluss Phase 1
+
+### Was abgeschlossen wurde
+
+**Deployment vollständig durchgeführt:**
+- Crons pausiert, ERROR_OCCURED bereinigt.
+- `tsu_pipeline` von GitHub auf carrot geklont (`/home/data/tsu_pipeline/`).
+- `.env` mit neuem Passwort und `localhost:5432` angelegt.
+- `run_pipeline.sh` ersetzt, Test-Lauf erfolgreich.
+- Crons reaktiviert — Pipeline läuft produktiv.
+
+**Infrastruktur-Änderungen:**
+- Tripleheat-Server läuft jetzt unter User `tripleheat` auf carrot.
+- Alter racing-Server gilt als abgeschaltet; Postgres dort noch erreichbar.
+- DB-Port per `ufw` geschlossen (nur localhost); Passwort rotiert.
+
+**Sicherheit bereinigt:**
+- `.env.production` mit echtem Passwort war versehentlich in GitHub-History.
+- Bereinigt mit `git filter-repo` (Passwort redacted, Datei getilgt).
+- Force-Push auf `master` durchgeführt.
+- `.gitignore` um `.env` und `.env.*` erweitert; `.env.example` als sichere
+  Vorlage eingecheckt.
+- Externe DB-IP (`46.232.250.25:5432`) durch `localhost:5432` ersetzt.
+
+### Stand (Ende Phase 1)
+
+```
+git (tsu_pipeline): github.com/Dremet/tsu_pipeline, Branch master
+Tests: 27/27 grün
+
+Produktiv-DB (localhost:5432/tsu, data-User):
+  base.race_sessions       305 heats (historisch) + wächst mit hotlapping/events
+  base.race_participations 3.669 (historisch) + wächst
+  base.drivers             120 (Bootstrap) + wächst
+  base.elo_bootstrap       120, Stichtag 2026-05-29 19:41:47 UTC ✓
+  base.elo_history         0 (leer — Bootstrap ist Stand; wächst ab erstem
+                             echten Tripleheat-Rennen auf carrot)
+  mart.v_race_results, v_hotlap_results, v_driver_profile ✓
+
+Pipeline:
+  Crons aktiv (data-User, alle 30s)
+  hotlapping + events werden verarbeitet
+  heats: Pipeline-Weg bereit, wartet auf move-Script-Deployment
+```
+
+### Nächste Schritte
+
+**Prio 1 — move-Script für Tripleheat deployen:**
+`tsura_server_scripts/heat/server/config/Scripts/` enthält fertige Scripts.
+Deployment unter User `tripleheat` auf carrot (Manuel, separates Vorhaben).
+Nach erstem echten Rennen: `SELECT COUNT(*) FROM base.elo_history;` → sollte > 0.
+
+**Prio 2 — Phase 2: tsura2 auf neue mart-Views umstellen:**
+- `mart.v_hotlap_sessions` noch anlegen (fehlt).
+- tsura2 von alten `mart.fact_*` auf neue `mart.v_*` umstellen.
+- Anzeige-Logik: Events + Tripleheats als Einzelergebnisse; Hotlapping nur Rangliste.
+
+---
+
+*Ende Phase 1 — Pipeline produktiv*
