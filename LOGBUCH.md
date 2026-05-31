@@ -286,10 +286,13 @@ Quelle: `/home/data/history_triple_heat_hammock`
 Diese Sessions liegen in `base.race_sessions` für Profilanzeige und Rennergebnisse.
 Sie tragen **nicht** zur ELO-Berechnung bei — ihr ELO-Beitrag steckt im Bootstrap.
 
-**3 Limbo-Rennen** (2026-05-29 21:05–21:41): Diese Rennen existieren in den
-Rohdateien, wurden von der alten racing-DB aber noch nicht verarbeitet. Sie
-liegen nach dem Bootstrap-Stichtag und bekommen ELO, sobald `update_elo`
-das nächste Mal läuft.
+**Korrektur zu den 3 Rennen vom 29.5. (21:05–21:41):** Diese waren zunächst als
+"Limbo" eingestuft, sind es aber nicht. Die alte racing-DB hat sie bereits
+(einen Tag vor Projektstart) verarbeitet — ihr ELO steckt im Bootstrap.
+Problem: der ermittelte Bootstrap-Stichtag `2026-05-29 19:41:47`
+(`MAX(last_race_at)`) liegt VOR diesen 3 Rennen. Damit würde `update_elo` sie
+als "neu" einstufen und nochmals ELO berechnen → Doppelzählung. Offener
+Prüfpunkt, siehe OFFENE_ENTSCHEIDUNGEN.md OE-4.
 
 ### Etappe 3 — ELO-Bootstrap 1:1 aus racing-DB übernommen
 `migrate_elo_history.py --apply` ausgeführt:

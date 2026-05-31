@@ -48,3 +48,34 @@ konsistent. Eine Umbenennung würde eine separate Migration auslösen.
 **Entscheid:** dbt-Hotlap-Gruppenbildung (`base.hotlapping` mit `hotlap_group_id`)
 läuft vorerst auf den neuen `base.hotlap_events`-Tabellen weiter. NICHT nach
 Python portieren — ist nicht-trivial korrekt und ggf. Phase-3-Thema.
+
+---
+
+## OE-4: Bootstrap-Stichtag verifizieren (Doppelzählung der 3 Rennen vom 29.5.)
+
+**STATUS: OFFEN**
+
+**Problem:** Der Bootstrap-Stichtag (`MAX(elo_bootstrap.last_race_at)`) beträgt
+`2026-05-29 19:41:47`. Die 3 letzten historischen Tripleheat-Rennen liegen jedoch
+bei `21:05`, `21:20` und `21:41` — also NACH dem Stichtag.
+
+Die alte racing-DB hat diese 3 Rennen bereits verarbeitet (ELO steckt im Bootstrap).
+Der aktuelle Stichtagsschutz in `update_elo` würde sie dennoch als "neue" Sessions
+einstufen und nochmals ELO berechnen → Doppelzählung.
+
+**Ursache (Hypothese):** `last_race_at` in `elo_bootstrap` stammt aus
+`tsu.elo_heat.last_timestamp`. Dieses Feld enthält wahrscheinlich den Zeitstempel
+des jeweils vorletzten Rennens eines Fahrers, nicht des letzten — oder es gibt
+eine systematische Verschiebung zwischen Rennzeit und ELO-Berechnungszeit.
+
+**Zu prüfen (gemeinsam mit André, racing-DB read-only):**
+1. Was genau bedeutet `tsu.elo_heat.last_timestamp`? Ist es die Startzeit des
+   Rennens, das diese ELO-Zeile erzeugt hat, oder des Vorgänger-Rennens?
+2. Liegt `MAX(last_race_at)` korrekt NACH `2026-05-29 21:41` oder nicht?
+3. Falls nicht: Muss der Stichtag manuell auf `>= 2026-05-29 21:42` gesetzt
+   werden (z.B. als Konstante in der DB oder als Override-Parameter)?
+
+**Keine Code-Änderung bis zur Klärung.** Die 3 Rennen sind in der TEST-DB
+geladen aber noch nicht von `update_elo` verarbeitet (Test-DB hat noch kein
+neues ELO). Solange der Tripleheat-Server nicht auf carrot läuft, entsteht
+kein unmittelbarer Schaden.
