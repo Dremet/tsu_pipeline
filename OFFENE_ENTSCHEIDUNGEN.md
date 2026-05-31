@@ -53,29 +53,19 @@ Python portieren — ist nicht-trivial korrekt und ggf. Phase-3-Thema.
 
 ## OE-4: Bootstrap-Stichtag verifizieren (Doppelzählung der 3 Rennen vom 29.5.)
 
-**STATUS: OFFEN**
+**STATUS: KEIN PROBLEM — Zeitzonenirrtum, Stichtag greift korrekt (2026-05-31)**
 
-**Problem:** Der Bootstrap-Stichtag (`MAX(elo_bootstrap.last_race_at)`) beträgt
-`2026-05-29 19:41:47`. Die 3 letzten historischen Tripleheat-Rennen liegen jedoch
-bei `21:05`, `21:20` und `21:41` — also NACH dem Stichtag.
+**Ergebnis:** Der Stichtagsschutz funktioniert korrekt. Kein Code-Änderungsbedarf.
 
-Die alte racing-DB hat diese 3 Rennen bereits verarbeitet (ELO steckt im Bootstrap).
-Der aktuelle Stichtagsschutz in `update_elo` würde sie dennoch als "neue" Sessions
-einstufen und nochmals ELO berechnen → Doppelzählung.
+**Ursache des scheinbaren Problems:** Zeitzonenverwirrung.
+- Die "21:05–21:41"-Zeiten waren CEST-Ortszeit (UTC+2).
+- Sowohl `tsu.elo_heat.last_timestamp` (racing-DB) als auch `utcStartTime` in
+  den JSON-Dateien speichern **UTC** (= 19:05–19:41 UTC).
+- Der Bootstrap-Stichtag (`MAX(last_race_at) = 2026-05-29 19:41:47 UTC`) ist
+  damit korrekt: er ist GLEICH dem letzten Rennen (19:41:47 UTC).
+- Der Filter in `update_elo` ist **strikt größer** (`>`), also blockiert er
+  alle 3 Rennen (19:05 < 19:41, 19:20 < 19:41, 19:41 = 19:41 → nicht `>`).
 
-**Ursache (Hypothese):** `last_race_at` in `elo_bootstrap` stammt aus
-`tsu.elo_heat.last_timestamp`. Dieses Feld enthält wahrscheinlich den Zeitstempel
-des jeweils vorletzten Rennens eines Fahrers, nicht des letzten — oder es gibt
-eine systematische Verschiebung zwischen Rennzeit und ELO-Berechnungszeit.
-
-**Zu prüfen (gemeinsam mit André, racing-DB read-only):**
-1. Was genau bedeutet `tsu.elo_heat.last_timestamp`? Ist es die Startzeit des
-   Rennens, das diese ELO-Zeile erzeugt hat, oder des Vorgänger-Rennens?
-2. Liegt `MAX(last_race_at)` korrekt NACH `2026-05-29 21:41` oder nicht?
-3. Falls nicht: Muss der Stichtag manuell auf `>= 2026-05-29 21:42` gesetzt
-   werden (z.B. als Konstante in der DB oder als Override-Parameter)?
-
-**Keine Code-Änderung bis zur Klärung.** Die 3 Rennen sind in der TEST-DB
-geladen aber noch nicht von `update_elo` verarbeitet (Test-DB hat noch kein
-neues ELO). Solange der Tripleheat-Server nicht auf carrot läuft, entsteht
-kein unmittelbarer Schaden.
+**Fazit:** Alle 3 Rennen werden von `update_elo` korrekt als historisch
+eingestuft. Keine Doppelzählung möglich. Verifiziert durch read-only-Abfragen
+gegen racing-DB und History-JSON-Dateien am 2026-05-31.

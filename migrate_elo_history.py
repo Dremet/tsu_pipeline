@@ -16,6 +16,7 @@ It does NOT write to the production TSU_HOTLAPPING_POSTGRES_URL.
 import argparse
 import os
 import sys
+from datetime import timezone
 from pathlib import Path
 
 import psycopg
@@ -66,7 +67,11 @@ def fetch_racing_data() -> list[dict]:
                 "flag": row[3] or None,
                 "elo_value": row[4],
                 "number_races": row[5],
-                "last_race_at": row[6],
+                # racing-DB stores last_timestamp as timestamp WITHOUT timezone,
+                # but the value is UTC (matches utcStartTime in JSON files).
+                # Mark it explicitly so PostgreSQL doesn't misinterpret it as
+                # local time (Europe/Berlin) when inserting into TIMESTAMPTZ.
+                "last_race_at": row[6].replace(tzinfo=timezone.utc) if row[6] else None,
             }
             for row in cur.fetchall()
         ]
