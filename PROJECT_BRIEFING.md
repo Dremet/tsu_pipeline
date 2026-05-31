@@ -259,8 +259,21 @@ Briefing, sondern ergänzt sie um das konkrete Look-&-Feel.
 ### Deployment
 - Entwicklung: `/home/dremet/tsura/tsura2/` (dremet-User), Push nach
   `github.com/Dremet/tsura2` (SSH).
-- Deployment: `git pull` als `tsura`-User auf carrot — bewusster, manueller
-  Schritt durch André.
+- Deployment: `git pull` als `tsura`-User auf carrot, danach Service neu starten.
+
+```bash
+# Als tsura-User auf carrot:
+git stash && git pull && git stash drop   # stash nur nötig wenn uncommitted changes
+
+# Service neu starten (als dremet mit sudo oder als tsura):
+sudo systemctl --machine=tsura@ --user restart dev_tsura.service
+sudo systemctl --machine=tsura@ --user status  dev_tsura.service
+```
+
+Hintergrund: tsura2 läuft als Gunicorn (3 Workers, Unix-Socket
+`/run/tsura/dev_tsura.sock`) hinter nginx. Service-Datei:
+`/home/tsura/.config/systemd/user/dev_tsura.service`.
+nginx selbst muss bei Code-Updates nicht neugestartet werden.
 
 ## Arbeitsweise
 
