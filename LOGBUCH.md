@@ -818,3 +818,53 @@ Phase 3 (nächste Session):
   Fahrerprofil-Seiten (/driver/<steam_id>)
   ELO-Delta in v_driver_profile (Zusatz-Abfrage auf base.elo_history)
 ```
+
+---
+
+## Session 2026-05-31 — Teil 7 (interaktiv mit André) — Hotlap-Session-Gruppierung
+
+**Ziel:** OE-3 umsetzen — Hotlapping-Seite gruppiert aufeinanderfolgende Events
+gleicher Strecke zu einer Session statt jedes Event einzeln anzuzeigen.
+
+### Entscheidung: nur Streckenwechsel = neue Session
+
+Gruppierungsregel identisch zur alten `base.hotlapping`-dbt-Logik:
+- Nur Streckenwechsel triggert neue Session (kein Auto, keine Zeitlücke).
+- Eine Session kann viele Tage laufen (über Tage vergleichbare Rangliste).
+
+### Was gebaut wurde
+
+**tsu_pipeline — `migrations/003_mart_views.sql`** (commit 3e6b796):
+- `mart.v_hotlap_grouped_sessions`: Eine Zeile pro Session-Gruppe.
+  Window-Funktion (`LAG` + kumuliertes `SUM`) über `utc_start_time`.
+  `group_id` = ID des ersten Events der Gruppe (stabiler URL-Parameter).
+  Zeigt `session_start`, `session_end`, `event_count`, `driver_count`, `total_laps`, `cars_used`.
+- `mart.v_hotlap_group_results`: Alle Runden aller Events einer Gruppe.
+  `is_best_lap` = beste Runde pro (group_id, steam_id) — fahrerbezogen über die gesamte Session.
+
+**tsura2** (commit e40aa83):
+- `/hotlapping`: liest `v_hotlap_grouped_sessions` (statt `v_hotlap_sessions`).
+- `/hotlapping/<group_id>`: liest `v_hotlap_group_results` (statt `v_hotlap_results`).
+- Index-Seite: Hotlap-Card nutzt `session_start` + Link direkt zur aktuellen Session.
+- `hotlapping.html`: neue Spalten Session Start/End/Laps.
+
+### Ergebnis
+
+9022 Roh-Events → 45 Sessions (Produktiv-DB + Test-DB identisch ✓).  
+Alle drei Routen (/, /hotlapping, /hotlapping/\<group_id\>) lokal getestet: 200 ✓.  
+Views auf Produktiv-DB deployed (idempotent CREATE OR REPLACE).
+
+### Nächste Schritte
+
+**Ausstehend (manuell durch André):**
+- `git pull` + Service-Restart auf carrot:
+  ```bash
+  cd /home/tsura/tsura2 && git pull && sudo systemctl --machine=tsura@ --user restart dev_tsura.service
+  ```
+- Hotlapping-Archiv noch nicht in Produktiv-DB (s. Ende Teil 6) — sollte vor
+  dem nächsten Deployment geladen werden.
+
+**Phase 3:**
+- Startseite überarbeiten
+- Fahrerprofil-Seiten (`/driver/<steam_id>`)
+- ELO-Delta in `v_driver_profile`
