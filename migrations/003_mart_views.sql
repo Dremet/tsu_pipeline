@@ -100,6 +100,7 @@ FROM base.hotlap_events he
 JOIN base.tracks t        ON t.guid  = he.track_guid
 JOIN base.hotlap_laps hl  ON hl.event_id = he.id
 LEFT JOIN base.vehicles v ON v.guid  = hl.vehicle_guid
+WHERE he.server = 'hotlapping'   -- exclude practice/quali from event server
 GROUP BY he.id, he.utc_start_time, he.server, t.name;
 
 
@@ -128,6 +129,9 @@ WITH elo_current AS (
     LEFT JOIN base.elo_bootstrap eb ON eb.steam_id = d.steam_id
 ),
 heat_stats AS (
+    -- Only count sessions AFTER the bootstrap cutoff to avoid double-counting.
+    -- Historical Tripleheat sessions (loaded for display) are already reflected
+    -- in elo_bootstrap.number_races; counting them here again would be wrong.
     SELECT
         rp.steam_id,
         COUNT(*)                          AS heat_races,
@@ -136,7 +140,12 @@ heat_stats AS (
         MAX(rs.utc_start_time)            AS heat_last_race_at
     FROM base.race_participations rp
     JOIN base.race_sessions rs ON rs.id = rp.session_id
-    WHERE rs.server = 'heats' AND rp.is_ai = false
+    WHERE rs.server = 'heats'
+      AND rp.is_ai = false
+      AND rs.utc_start_time > COALESCE(
+          (SELECT MAX(last_race_at) FROM base.elo_bootstrap),
+          '-infinity'::timestamptz
+      )
     GROUP BY rp.steam_id
 ),
 event_stats AS (
