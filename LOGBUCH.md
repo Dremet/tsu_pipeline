@@ -723,3 +723,98 @@ Nach erstem echten Rennen: `SELECT COUNT(*) FROM base.elo_history;` → sollte >
 ---
 
 *Ende Phase 1 — Pipeline produktiv*
+
+---
+
+## Session 2026-05-31 — Teil 6 (interaktiv mit André) — Phase 2 abgeschlossen
+
+### Was abgeschlossen wurde
+
+**mart-Views erweitert und korrigiert (tsu_pipeline):**
+- `mart.v_hotlap_sessions` neu angelegt (Phase-2-Vorarbeit).
+- `mart.v_hotlap_sessions`: Server-Filter `WHERE server='hotlapping'` ergänzt
+  (verhindert, dass Practice/Quali vom Event-Server in der Hotlapping-Liste erscheinen).
+- `mart.v_driver_profile` / `heat_stats`-CTE: Bootstrap-Cutoff-Filter ergänzt
+  (`utc_start_time > MAX(elo_bootstrap.last_race_at)`). Verhindert
+  Doppelzählung der historischen Tripleheat-Sessions, die nur als Display-Daten
+  geladen wurden und bereits in `elo_bootstrap.number_races` enthalten sind.
+  `heat_total_races` = neue Rennen (nach Stichtag) + Bootstrap-Zahl = korrekt.
+- `loader.py`: Race-Modus-Dateien auf dem Hotlapping-Server werden übersprungen
+  (`skip_reason: race-mode file on hotlapping server`). Nur
+  `raceStats.hotlapping=true`-Dateien aus `/home/data/hotlapping` werden geladen.
+
+**tsura2 vollständig auf neue mart-Views umgestellt:**
+- Alle alten `tsu.mart.fact_*`-Referenzen entfernt — keine Crashes mehr.
+- `/elo-heats` → `mart.v_driver_profile` (ELO-Rangliste, Flag inline beim Namen).
+- `/hotlapping` → `mart.v_hotlap_sessions` (nur server='hotlapping').
+- `/hotlapping/<event_id>` → `mart.v_hotlap_results` (Hash-IDs).
+- `/` → `mart.v_race_results` + `mart.v_hotlap_sessions`.
+- `/races` → Ergebnisliste Events + Tripleheats (mit Typ-Badge).
+- `/races/<session_id>` → Detailseite (ELO-Spalten für Heats).
+- Nav: "ELO Events" entfernt, "Races" hinzugefügt.
+- Deployment: `dev_tsura.service` (systemd user, tsura@carrot) via
+  `git pull` + `sudo systemctl --machine=tsura@ --user restart dev_tsura.service`.
+
+**Produktiv-DB-Korrekturen:**
+- Beide Views (`v_hotlap_sessions`, `v_driver_profile`) direkt auf Produktiv-DB
+  deployed (idempotent via `CREATE OR REPLACE VIEW`).
+- `PROJECT_BRIEFING.md` ins tsu_pipeline-Repo aufgenommen + Design-Richtung
+  tsura2 dokumentiert.
+
+### Ausstehender manueller Schritt: Hotlapping-Archiv laden
+
+Das historische Hotlapping-Archiv (`/home/data/hotlapping`, ~21.380 Dateien)
+ist nur in der Test-DB, nicht in der Produktiv-DB. Zu laden als `data`-User:
+
+```bash
+cd /home/data/tsu_pipeline
+source .env
+uv run python - <<'EOF'
+from tsu_pipeline.batch import load_folder
+import os
+from dotenv import load_dotenv
+load_dotenv()
+url = os.environ["TSU_PROD_POSTGRES_URL"]
+print("Starte Load...")
+r = load_folder("/home/data/hotlapping", "hotlapping", url)
+print(f"Gesamt:   {r['total']}")
+print(f"Geladen:  {r['loaded']}")
+print(f"Skipped:  {r['skipped']}")
+print(f"Fehler:   {r['errors']}")
+print(f"Events:   {r['sessions_new']}")
+print(f"Laps:     {r['laps_new']}")
+print(f"Fahrer:   {r['drivers_new']}")
+EOF
+```
+
+Erwartetes Ergebnis: ~9.000 neue hotlap_events, ~37.000 neue laps, ~8.400 +
+~3.959 Skips (Sentinels + Race-Mode-Dateien), 0 Fehler. Laufzeit ~30s.
+
+Plausibilitätscheck danach:
+```bash
+psql "$TSU_PROD_POSTGRES_URL" -c "
+SELECT
+  (SELECT COUNT(*) FROM base.hotlap_events WHERE server='hotlapping') AS hl_events,
+  (SELECT COUNT(*) FROM base.hotlap_laps)                            AS hl_laps,
+  (SELECT COUNT(*) FROM base.hotlap_laps WHERE lap_time >= 89999)    AS sentinel_check
+;"
+```
+Erwartung: sentinel_check = 0, hl_events ~9.000, hl_laps ~37.000.
+
+### Stand
+
+```
+git (tsu_pipeline): github.com/Dremet/tsu_pipeline, Branch master
+git (tsura2):       github.com/Dremet/tsura2, Branch master
+Tests: 22/27 grün (5 pre-existing FileNotFoundError, nicht regressions)
+
+Phase 2: ✅ ABGESCHLOSSEN
+  Alle Routes auf neue mart.v_*-Views
+  View-Korrekturen auf Produktiv-DB deployed
+  Hotlapping-Archiv-Load: manueller Schritt ausstehend (s.o.)
+
+Phase 3 (nächste Session):
+  Startseite überarbeiten (Projekt-Erklärung, übersichtliches Layout)
+  Fahrerprofil-Seiten (/driver/<steam_id>)
+  ELO-Delta in v_driver_profile (Zusatz-Abfrage auf base.elo_history)
+```

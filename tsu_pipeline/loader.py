@@ -358,6 +358,21 @@ def load_event(json_path: str | Path, server: str, conn) -> dict:
         }
 
     is_hotlapping = data["raceStats"]["hotlapping"]
+
+    # When loading from the dedicated hotlapping server, skip race-mode files.
+    # Any server can produce both modes (event server runs practice in hotlap
+    # mode; hotlapping server occasionally produces multi-player race sessions).
+    # Only hotlap-mode files belong in the hotlapping leaderboard.
+    if server == "hotlapping" and not is_hotlapping:
+        return {
+            "skipped": True,
+            "skip_reason": "race-mode file on hotlapping server",
+            "sessions": 0,
+            "participations": 0,
+            "drivers_new": 0,
+            "laps": 0,
+        }
+
     if is_hotlapping:
         return _load_hotlap(data, server, conn)
     else:
