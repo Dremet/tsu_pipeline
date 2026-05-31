@@ -137,7 +137,13 @@ def update_elo(session_ids: list[str], conn, *, server: str = "heats") -> int:
         return 0
 
     # Fetch all sessions + human participants, sorted chronologically.
-    # Filter by server so Event sessions never accidentally get ELO.
+    # Two structural guards:
+    #   1. server filter — Events never get ELO by accident.
+    #   2. bootstrap cutoff — sessions at or before MAX(elo_bootstrap.last_race_at)
+    #      are historical: their ELO contribution is already captured in the bootstrap
+    #      seed. Only sessions strictly AFTER the cutoff are new races. When no
+    #      bootstrap exists (fresh install), the cutoff is -infinity → all sessions
+    #      are processed.
     conn.execute(
         """
         SELECT
@@ -159,6 +165,10 @@ def update_elo(session_ids: list[str], conn, *, server: str = "heats") -> int:
           AND rs.server = %s
           AND rp.is_ai = false
           AND rp.steam_id IS NOT NULL
+          AND rs.utc_start_time > COALESCE(
+              (SELECT MAX(last_race_at) FROM base.elo_bootstrap),
+              '-infinity'::timestamptz
+          )
         ORDER BY rs.utc_start_time ASC, rs.id
         """,
         (session_ids, server),

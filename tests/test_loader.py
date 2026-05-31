@@ -3,6 +3,7 @@ Tests for tsu_pipeline.loader — end-to-end with real DB (rolled back per test)
 """
 
 import json
+from datetime import datetime, timezone
 from pathlib import Path
 
 import psycopg
@@ -258,3 +259,128 @@ def test_elo_idempotent(conn):
     # Values unchanged after second call
     conn.execute("SELECT COUNT(*) FROM base.elo_history")
     assert conn.fetchone()[0] == 2
+
+
+# ── Bootstrap cutoff protection ───────────────────────────────────────────────
+
+def _insert_minimal_session(conn, session_id: str, utc_start_time, steam_ids: list,
+                             track_guid: str, vehicle_guid: str) -> None:
+    """Insert a bare-minimum race_session + participations for cutoff tests."""
+    conn.execute(
+        """
+        INSERT INTO base.race_sessions
+            (id, utc_start_time, host, track_guid, server, finished_state, participant_count)
+        VALUES (%s, %s, 76561190000000001, %s, 'heats', 'Finished', %s)
+        ON CONFLICT (id) DO NOTHING
+        """,
+        (session_id, utc_start_time, track_guid, len(steam_ids)),
+    )
+    for pos, steam_id in enumerate(steam_ids, 1):
+        conn.execute(
+            """
+            INSERT INTO base.race_participations
+                (id, session_id, steam_id, is_ai, vehicle_guid, position, laps_completed)
+            VALUES (%s, %s, %s, false, %s, %s, 5)
+            ON CONFLICT (id) DO NOTHING
+            """,
+            (f"{session_id}-p{pos}", session_id, steam_id, vehicle_guid, pos),
+        )
+
+
+def test_elo_bootstrap_cutoff_blocks_historical_sessions(conn):
+    """
+    Sessions at or before MAX(elo_bootstrap.last_race_at) must be silently
+    skipped by update_elo — their ELO contribution is already in the bootstrap
+    seed. Only sessions strictly AFTER the cutoff produce new ELO entries.
+    """
+    cutoff = datetime(2025, 6, 1, 12, 0, 0, tzinfo=timezone.utc)
+    before = datetime(2025, 5, 15, 20, 0, 0, tzinfo=timezone.utc)   # historical
+    after  = datetime(2025, 7, 15, 20, 0, 0, tzinfo=timezone.utc)   # new
+
+    track_guid   = "test-track-bootstrap-cutoff"
+    vehicle_guid = "test-vehicle-bootstrap-cutoff"
+    steam_ids    = [7656119899900001, 7656119899900002]
+
+    conn.execute(
+        "INSERT INTO base.tracks (guid, name) VALUES (%s, 'Cutoff Test Track') ON CONFLICT DO NOTHING",
+        (track_guid,),
+    )
+    conn.execute(
+        "INSERT INTO base.vehicles (guid, name) VALUES (%s, 'Cutoff Car') ON CONFLICT DO NOTHING",
+        (vehicle_guid,),
+    )
+    for steam_id, name in zip(steam_ids, ["CutoffDriverA", "CutoffDriverB"]):
+        conn.execute(
+            "INSERT INTO base.drivers (steam_id, name) VALUES (%s, %s) ON CONFLICT DO NOTHING",
+            (steam_id, name),
+        )
+        conn.execute(
+            """
+            INSERT INTO base.elo_bootstrap
+                (steam_id, elo_value, number_races, last_race_at, source)
+            VALUES (%s, 1000.0, 10, %s, 'test')
+            ON CONFLICT (steam_id) DO UPDATE SET last_race_at = EXCLUDED.last_race_at
+            """,
+            (steam_id, cutoff),
+        )
+
+    _insert_minimal_session(conn, "sess-hist-cutoff", before, steam_ids, track_guid, vehicle_guid)
+    _insert_minimal_session(conn, "sess-new-cutoff",  after,  steam_ids, track_guid, vehicle_guid)
+
+    inserted = update_elo(["sess-hist-cutoff", "sess-new-cutoff"], conn)
+
+    assert inserted == 2, (
+        f"Only the post-cutoff session should produce ELO (2 drivers), got {inserted}"
+    )
+
+    # Historical session must have no ELO entries
+    conn.execute(
+        "SELECT COUNT(*) FROM base.elo_history eh "
+        "JOIN base.race_participations rp ON rp.id = eh.participation_id "
+        "WHERE rp.session_id = %s",
+        ("sess-hist-cutoff",),
+    )
+    assert conn.fetchone()[0] == 0, "Historical session (before cutoff) must not have ELO entries"
+
+    # New session must have exactly 2 ELO entries (one per driver)
+    conn.execute(
+        "SELECT COUNT(*) FROM base.elo_history eh "
+        "JOIN base.race_participations rp ON rp.id = eh.participation_id "
+        "WHERE rp.session_id = %s",
+        ("sess-new-cutoff",),
+    )
+    assert conn.fetchone()[0] == 2, "Post-cutoff session must have 2 ELO entries"
+
+
+def test_elo_no_bootstrap_processes_all_sessions(conn):
+    """
+    When elo_bootstrap is empty (fresh install, no migration), the cutoff
+    defaults to -infinity and all sessions are processed normally.
+    """
+    track_guid   = "test-track-no-bootstrap"
+    vehicle_guid = "test-vehicle-no-bootstrap"
+    steam_ids    = [7656119899900003, 7656119899900004]
+    utc_time     = datetime(2025, 3, 1, 20, 0, 0, tzinfo=timezone.utc)
+
+    conn.execute(
+        "INSERT INTO base.tracks (guid, name) VALUES (%s, 'No-Bootstrap Track') ON CONFLICT DO NOTHING",
+        (track_guid,),
+    )
+    conn.execute(
+        "INSERT INTO base.vehicles (guid, name) VALUES (%s, 'No-Bootstrap Car') ON CONFLICT DO NOTHING",
+        (vehicle_guid,),
+    )
+    for steam_id, name in zip(steam_ids, ["NoBsDriverA", "NoBsDriverB"]):
+        conn.execute(
+            "INSERT INTO base.drivers (steam_id, name) VALUES (%s, %s) ON CONFLICT DO NOTHING",
+            (steam_id, name),
+        )
+
+    # No bootstrap entries → elo_bootstrap is empty for these drivers (prepared_db truncated it)
+    _insert_minimal_session(conn, "sess-no-bootstrap", utc_time, steam_ids, track_guid, vehicle_guid)
+
+    inserted = update_elo(["sess-no-bootstrap"], conn)
+
+    assert inserted == 2, (
+        "Without bootstrap, all sessions should be processed (cutoff = -infinity)"
+    )
