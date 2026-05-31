@@ -868,3 +868,118 @@ Views auf Produktiv-DB deployed (idempotent CREATE OR REPLACE).
 - Startseite überarbeiten
 - Fahrerprofil-Seiten (`/driver/<steam_id>`)
 - ELO-Delta in `v_driver_profile`
+
+---
+
+## Session 2026-05-31 — Teil 8 (interaktiv mit André) — Phase-3-Features + Casual-Heat-Analyse
+
+### Was gebaut wurde
+
+#### mart-Views erweitert (tsu_pipeline, commit 07a24f5)
+
+- `mart.v_race_results`: neue Spalte `human_participant_count` (Window-Funktion `COUNT(*) OVER (PARTITION BY rs.id)`, zählt nur menschliche Teilnehmer da `is_ai=false` bereits im WHERE steht)
+- `mart.v_driver_profile`: zwei neue Spalten `heat_elo_delta` und `heat_elo_trend_6` via CTEs `elo_ranked / elo_last / elo_trend` aus `base.elo_history` — beide NULL bis zum ersten echten Tripleheat-Rennen über die neue Pipeline
+- GRANT-Block am Ende von 003_mart_views.sql eingefügt (idempotent, sichert tsura-User-Zugriff nach jedem `CREATE OR REPLACE VIEW`)
+- Views direkt auf Prod-DB deployed (CREATE OR REPLACE, additiv, kein Datenverlust)
+
+#### tsura2 — 5 Feature-Commits (abcb8f8 ← 38d9759)
+
+**Punkt 4 — Race Detail (38d9759):**
+- Sieger-Zeile: amber-glow Background via `rgba(255,193,7,0.25)` + `text-warning fw-bold` Link — Kontrast lesbar
+- Zeiten ab P2 relativ zum Sieger: `+S.sss` (< 60s), `+M:SS.sss` (≥ 60s), `+N lap(s)` bei überrundeten Fahrern
+- Flagge als Emoji im Driver-Link (Mapping in `_flag_emoji()` in routes.py)
+
+**Punkt 6 + 3 — Startseite / Races-Seite (29bdc3a):**
+- "Recent Races" von der Startseite entfernt; Index zeigt nur noch Hotlap-Karte und Server-Liste
+- Races-Seite: drei Server-Karten (Event-Server, TripleHeat, Casual-Heat) mit allen Rennen des letzten Renntags pro Server (max. 5), darunter vollständige Liste gefiltert auf ≥ 4 menschliche Teilnehmer
+
+**Punkt 1 — Hotlapping Consistency (8839e0a):**
+- Berechnung in Python aus `lap_rows`-Daten (kein DB-Change)
+- `consistent` (✓): ≥ 5 Runden innerhalb 1 % der Bestzeit des Fahrers
+- `very_consistent` (★): ≥ 5 Runden innerhalb 0,3 % — Tooltip-Text korrigiert (war 0,2 %)
+
+**Punkt 7 — ELO-Liste Delta/Trend (5d83fda):**
+- Spalten "Delta" und "Trend" in `elo_heats.html` füllen sich aus `heat_elo_delta` / `heat_elo_trend_6`
+- Grün/Rot-Färbung; zeigt `—` bis erste Live-Daten vorliegen
+
+**Punkt 2 — Fahrerprofil /driver/<steam_id> (abcb8f8):**
+- Neue Route + Template `driver.html`
+- Zeigt: aktuelles ELO als große Zahl, Event- und Hotlap-Statistiken, Flagge als Emoji
+- ELO-Verlauf: Chart.js-Liniengraph (CDN via `{% block extra_scripts %}` in base.html)
+- Letzte 10 Rennteilnahmen: Hotlapping ausgeschlossen, Event-Server mit < 4 Teilnehmern ausgeschlossen, Tripleheat/Casual-Heat zählen immer
+
+#### relabel_casual_heat.py angelegt (tsu_pipeline, commit 3b92dd6)
+
+Script zur einmaligen Korrektur falsch gelabelter Casual-Heat-Sessions. Stand: **Wochentag-Basis** (Heuristik). NICHT ausführen — wird in nächster Session auf Ordner-Basis umgeschrieben (siehe Nächste Schritte).
+
+### Alle Routes lokal getestet: 200, kein Traceback
+
+`/`, `/races`, `/hotlapping`, `/elo-heats`, `/races/<id>`, `/hotlapping/<group_id>`, `/driver/<steam_id>` — alle OK.
+
+### Stand
+
+```
+git (tsu_pipeline): github.com/Dremet/tsu_pipeline, 3b92bd6
+git (tsura2):       github.com/Dremet/tsura2, abcb8f8
+Prod-DB: v_race_results + v_driver_profile mit neuen Spalten deployed ✓
+Punkt 5 (Casual-Heat Relabeling): NOCH NICHT ausgeführt — Script muss erst
+         auf Ordner-Basis umgeschrieben werden (s. Nächste Schritte)
+```
+
+---
+
+### Nächste Schritte (geordnet, nichts davon ist erledigt)
+
+#### Schritt 1 — Neuer Ordner /home/data/tripleheat/ (Infrastruktur, vor erstem echten Rennen)
+
+Voraussetzung für korrekte Einsortierung künftiger Tripleheat-Rennen.
+
+- Ordner `/home/data/tripleheat/` auf carrot anlegen (analog `/home/data/heats/`)
+- `tsura_server_scripts/heat/server/config/Scripts/move_raw_files.sh` anpassen:
+  Ziel-Pfad von `/home/data/heats/` → `/home/data/tripleheat/`, Trigger-Datei
+  entsprechend umbenennen (z. B. `new_tripleheat_files.trigger`)
+- `run_pipeline.sh` auf dem data-User um `tripleheat` in der TYPE-Schleife erweitern
+- `/home/data/heats/` bleibt ausschließlich für Casual-Heat
+
+#### Schritt 2 — relabel_casual_heat.py auf Ordner-Basis umschreiben, dann --apply
+
+Ziel: Ordner-Wahrheit statt Wochentags-Heuristik.
+
+```
+Quelle                               → server-Label
+/home/data/history_triple_heat_hammock  → 'tripleheat'
+/home/data/heats/archive/               → 'casual_heat'
+Überlappung (gleiche session_id)        → history gewinnt ('tripleheat')
+```
+
+Vorgehen im Script:
+1. session_ids aus `history_triple_heat_hammock` berechnen → UPDATE server='tripleheat'
+2. session_ids aus `heats/archive` berechnen → UPDATE server='casual_heat' WHERE server != 'tripleheat'
+   (Reihenfolge: history zuletzt, damit Überlappungen korrekt auf 'tripleheat' bleiben)
+3. Erst Dry-Run zeigen, dann `--apply` auf Prod
+
+#### Schritt 3 — Globale Umbenennung 'heats' → 'tripleheat' (riskantester Teil, mit Test)
+
+Alle betroffenen Stellen (vollständige Liste):
+
+**tsu_pipeline:**
+- `run_pipeline.sh`: `for TYPE in hotlapping events heats` → `heats` durch `casual_heat`, neues `tripleheat` hinzufügen
+- `pipeline_run.py`: `if server == "heats"` → `"tripleheat"` (ELO-Trigger)
+- `elo.py`: default `server='heats'` + SQL-Filter `server = 'heats'` → `'tripleheat'`
+- `migrations/003_mart_views.sql`: heat_stats CTE, elo_ranked CTE, elo_current Subquery — alle `server = 'heats'` → `'tripleheat'`
+
+**tsura2:**
+- `routes.py`: alle `server IN ('events', 'heats', ...)` → `'tripleheat'` statt `'heats'`; heat_elo-Queries
+- `race_detail.html`, `races.html`, `driver.html`: Badge-Bedingungen `server == 'heats'` → `'tripleheat'`
+
+**DB-Daten (nach --apply aus Schritt 2 bereits erledigt):**
+- `base.race_sessions.server`: ~305 'heats' (Tripleheat) + ~105 'heats' (Casual-Heat) → beide umgestempelt
+
+**ACHTUNG ELO:** `update_elo` filtert auf `server='heats'` — nach Umbenennung muss der Filter auf `'tripleheat'` stehen, bevor das erste echte Rennen einläuft. Sonst bekommt kein Rennen ELO. Reihenfolge:
+1. Schritt 2 ausführen (Daten umgestempelt)
+2. Code auf 'tripleheat' umschreiben + testen
+3. Deployen — DANN erst Tripleheat-Server aktivieren
+
+#### ELO-Delta/Trend-Hinweis
+
+`heat_elo_delta` und `heat_elo_trend_6` in `v_driver_profile` und der ELO-Liste zeigen `—` bis das erste echte Tripleheat-Rennen über die neue Pipeline läuft und `base.elo_history` Einträge hat.
