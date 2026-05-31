@@ -459,7 +459,7 @@ TEST-DB:
 
 ### SCHRITT 1 — Schema-Migration auf Produktiv-DB
 
-Produktiv-DB: `postgresql://data:…@46.232.250.25:5432/tsu` (Schema-Rechte über
+Produktiv-DB: `postgresql://data:…@localhost:5432/tsu` (Schema-Rechte über
 `data`-User; `tsura`-User hat kein CREATE auf `base.*`.)
 
 **Gelöscht (CASCADE):**
@@ -601,7 +601,7 @@ ls /home/data/hotlapping/ | grep -v archive | head -5
 cd /home/data/tsu_data && ./run_pipeline.sh
 
 # Prüfen ob Events korrekt geladen:
-psql "postgresql://data:REDACTED@46.232.250.25:5432/tsu" -c \
+psql "postgresql://data:REDACTED@localhost:5432/tsu" -c \
   "SELECT server, COUNT(*) FROM base.race_sessions GROUP BY server ORDER BY server;"
 ```
 
@@ -645,7 +645,7 @@ wird aktualisiert.
 
 ```bash
 # ELO-Check nach erstem echtem Rennen:
-psql "postgresql://data:REDACTED@46.232.250.25:5432/tsu" -c \
+psql "postgresql://data:REDACTED@localhost:5432/tsu" -c \
   "SELECT COUNT(*) FROM base.elo_history;"
 # Erwartet: > 0
 ```
