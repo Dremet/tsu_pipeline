@@ -1026,3 +1026,93 @@ git (tsu_pipeline):          ausstehend
 **Schritt 1 (jetzt):** Commits + Deploy (s. Deployment-Anleitung unten).
 **Schritt 2:** `relabel_casual_heat.py` auf Ordner-Basis umschreiben + `--apply`.
 **Schritt 3:** Globale Umbenennung `'heats'` → `'tripleheat'` + `'casual_heat'` (nach Schritt 2).
+
+---
+
+## Session 2026-05-31 — Teil 10 (interaktiv mit André) — Testlauf + Abschluss
+
+### Was erledigt wurde
+
+**Schritt 1 vollständig abgeschlossen:**
+
+- `chmod +x` auf alle Scripts im `/home/tripleheat/server/config/Scripts/`-Verzeichnis
+  nachgezogen (war die Ursache für fehlgeschlagene Serverabläufe). Danach wechselt
+  der Tripleheat-Server korrekt Quali→Race und Event→Event.
+- `run_pipeline.sh` in `/home/data/tsu_data/` auf aktuellen Stand gebracht
+  (`tripleheat` in der TYPE-Schleife) — per `grep` auf dem Server bestätigt.
+- Manuell verschobene Tripleheat-Ergebnisdatei korrekt als `server='tripleheat'`
+  in `base.race_sessions` geladen — per `SELECT` auf der Produktiv-DB bestätigt.
+
+**Nebenbefund: Trigger-Dateien sind obsolet.**
+`new_tripleheat_files.trigger` (und analog `new_event_files.trigger`) werden von
+`move_raw_files.sh` geschrieben, aber von `run_pipeline.sh` nie gelesen. Die Pipeline
+scannt die Verzeichnisse blind alle 30 Sekunden — Trigger spielen keine Rolle.
+
+### Offene Punkte für morgen (in Priorität)
+
+#### 1. Website zeigt tripleheat-Rennen nicht an (Prio 1)
+
+Ein Rennen mit 5 Teilnehmern ist in `base.race_sessions` mit `server='tripleheat'`
+vorhanden, erscheint aber nicht auf der Races-Seite und nicht als Detailseite.
+
+**Vermutung:** tsura2-Queries und/oder mart-Views filtern auf konkrete Server-Werte,
+die `'tripleheat'` noch nicht enthalten. Die globale Umbenennung `heats→tripleheat`
+(Schritt 3 im LOGBUCH) ist noch nicht durchgeführt.
+
+**Vorgehen morgen:**
+1. In `tsura2/routes.py` und den Templates alle `server`-Filter prüfen
+   (suche nach `'heats'`, `server ==`, `server IN`).
+2. In `migrations/003_mart_views.sql` alle CTEs prüfen, die auf `server='heats'`
+   filtern (`heat_stats`, `elo_ranked`, etc.).
+3. Sicherstellen, dass `'tripleheat'` überall ergänzt wird, wo `'heats'` steht —
+   OHNE `'heats'` zu entfernen (die alten Daten stehen noch so in der DB).
+4. Views auf Produktiv-DB deployen, tsura2 neu starten, Anzeige prüfen.
+
+**ACHTUNG ELO:** `update_elo` filtert intern auf `rs.server = %s` und bekommt
+`server='tripleheat'` übergeben — das ist bereits korrekt (seit Teil 9). Dieser
+Punkt ist nicht betroffen.
+
+#### 2. Automatisches Verschieben nach echtem Rennende (Prio 2)
+
+Bisher nur manuell getestet. Offen: läuft `move_raw_files.sh` beim echten Rennende
+automatisch und schiebt die Dateien nach `/home/data/tripleheat/`?
+
+**Prüfen beim nächsten Testrennen:**
+- Nach Rennende: erscheint ein neuer Ordner in `/home/data/tripleheat/{TIMESTAMP}/raw/`?
+- Erscheint in `pipeline.log`: `Verarbeite: tripleheat/{TIMESTAMP}`?
+- `SELECT COUNT(*) FROM base.elo_history;` → sollte nach erstem echten Rennen > 0 sein.
+
+Das ist der Teil, der **Freitag automatisch laufen muss**.
+
+#### 3. Globale Umbenennung heats→tripleheat/casual_heat (Prio 3, nach 1+2)
+
+Schritt 2 (relabel_casual_heat.py auf Ordner-Basis) + Schritt 3 (Code-Umbenennung)
+aus dem LOGBUCH-Eintrag Teil 8 stehen noch aus. Erst angehen, wenn 1 und 2 stabil.
+
+### Infrastruktur-Notiz
+
+`tsura_server_scripts`-Remote noch auf HTTPS — vor dem nächsten Push umstellen:
+```bash
+cd /home/dremet/bestandsaufnahme/tsura_server_scripts
+git remote set-url origin git@github.com:Dremet/tsura_server_scripts.git
+```
+
+### Stand
+
+```
+git (tsu_pipeline):         79beafc — gepusht ✓
+git (tsura_server_scripts): dc9e929 — gepusht ✓ (nach SSH-Umstellung)
+
+Produktiv-DB:
+  base.race_sessions: erste tripleheat-Session mit server='tripleheat' ✓
+  base.elo_history:   0 (wächst ab erstem echten Rennen nach Bootstrap-Stichtag)
+  Bootstrap-Stichtag: 2026-05-29 19:41:47 UTC ✓
+
+Pipeline:
+  Crons aktiv (data-User, alle 30s)
+  hotlapping + events + heats (casual) + tripleheat werden verarbeitet
+  move_raw_files.sh: manuell bestätigt, automatisch noch zu testen (Freitag)
+
+Website (tsura2):
+  tripleheat-Rennen noch nicht sichtbar — Punkt 1 oben
+```
