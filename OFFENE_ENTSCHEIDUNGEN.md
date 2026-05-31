@@ -1,69 +1,50 @@
 # Offene Entscheidungen
 
 Punkte, die eine bewusste Designentscheidung brauchen, bevor sie sich
-in die falsche Richtung verhärten. Getroffene Entscheidungen werden in
-PROJECT_BRIEFING.md übernommen und hier archiviert.
+in die falsche Richtung verhärten. Getroffene Entscheidungen werden hier
+als "Entschieden" markiert.
 
 ---
 
 ## OE-1: elo_bootstrap als ewige Quelle oder Einmalinitialisierung?
 
-**Kontext:** `base.elo_bootstrap` speichert die letzte bekannte ELO-Wert
-jedes Fahrers aus der alten racing-DB. `_get_current_elo_map` in `elo.py`
-nutzt diesen Wert als Fallback, wenn kein `elo_history`-Eintrag existiert
-(d.h. Fahrer hat noch kein Tripleheat-Rennen auf dem neuen System gefahren).
+**STATUS: ENTSCHIEDEN (2026-05-30)**
 
-**Option A** (aktuell implementiert): Bootstrap bleibt dauerhaft als Fallback.
-Sobald der Fahrer das erste neue Rennen fährt, übernimmt `elo_history` und
-`elo_bootstrap` wird nie wieder herangezogen.
-
-**Option B**: Bootstrap nur für den Migrationsmoment. Nach der Migration
-wird `elo_history`-Startwerte für alle bekannten Fahrer mit ihren Legacy-ELOs
-vorbesetzt (synthetische Einträge ohne `participation_id`). `elo_bootstrap`
+**Richtung:** Option B — Bootstrap nur als Einmal-Initialisierung, eine
+einzige ELO-Quelle (`elo_history`). Nach der Migration werden synthetische
+`elo_history`-Starteinträge für alle bekannten Fahrer angelegt; `elo_bootstrap`
 kann dann gedroppt werden.
 
-**Empfehlung:** Option A ist einfacher und braucht keinen Schema-Umbau.
-Option B wäre sauberer (kein "zwei Quellen"-Problem), erfordert aber eine
-zusätzliche Datenbankänderung und mehr Code.
+**Umsetzung:** VERTAGT bis zur echten Tripleheat-Migration, die André gemeinsam
+mit Claude durchführt. Option A bleibt bis dahin implementiert — NICHT umbauen.
 
-**Entscheid steht aus** — kein Blocker für aktuellen Betrieb.
+**Kontext:** `base.elo_bootstrap` speichert den letzten ELO-Wert jedes Fahrers
+aus der alten racing-DB. `_get_current_elo_map` in `elo.py` nutzt diesen Wert
+als Fallback, wenn noch kein `elo_history`-Eintrag existiert.
 
 ---
 
 ## OE-2: `server`-Label für den (umziehenden) Tripleheat-Server
 
-**Kontext:** Tripleheat zieht auf den neuen carrot-Server. Heute heißt
-der Server-Label in den racing-DB-Daten implizit "heats". Im neuen Schema
-wird `base.race_sessions.server = 'heats'` für alle Tripleheat-Rennen
-gesetzt. Dieser Label bestimmt, ob ELO berechnet wird
-(`update_elo(..., server='heats')`).
+**STATUS: ENTSCHIEDEN (2026-05-30)**
 
-**Frage:** Bleibt der Label dauerhaft `'heats'` oder ändert er sich wenn
-der Tripleheat-Server umgezogen ist (z.B. `'tripleheat'`)?
+**Entschied:** Server-Label bleibt dauerhaft `'heats'`.
 
-**Anmerkung:** Wenn der Label geändert wird, müssen alle `update_elo`-
-Aufrufe und die `mart.v_driver_profile`-View angepasst werden. Konsistenz
-ist wichtiger als der genaue Name.
+**Wichtig:** Im neuen System (tsu_pipeline) bedeutet `server = 'heats'` immer
+Tripleheat — nicht den Casual-Heat-Server (der heißt `'casual_heat'` oder wird
+ignoriert). Die gleichnamige Casual-Heat-Ordnerstruktur unter `/home/data/heats`
+dient nur als Format-Beispiel für den Race-Modus. Tripleheat-Echtdaten liegen
+heute noch auf dem alten racing-Server und landen erst nach der Migration hier.
 
-**Entscheid steht aus** — Empfehlung: jetzt mit `'heats'` lassen, da das
-der aktuell etablierte Wert ist und eine Umbenennung eine separate Migration
-auslöst.
+**Kein Umbau nötig.** ELO-Filter (`server = 'heats'`) und mart-Views sind
+konsistent. Eine Umbenennung würde eine separate Migration auslösen.
 
 ---
 
 ## OE-3: Hotlap-Session-Gruppenbildung (Window-Funktion aus dbt)
 
-**Kontext:** Im alten dbt-Projekt `base.hotlapping` gibt es eine
-Window-Funktion, die zusammenhängende Hotlap-Sessions (mit Track-Wechsel)
-gruppiert. Diese Logik ist im neuen Pipeline-Code noch NICHT implementiert.
-Im Moment sind `base.hotlap_events` einzelne Rohdaten-Events; die
-dbt-Gruppenbildung auf `base.hotlapping` (mit `hotlap_group_id`) ist noch
-eine Stufe obendrauf.
+**STATUS: ENTSCHIEDEN (2026-05-30)**
 
-**Frage:** Brauchen wir diese Gruppenbildung in der neuen Pipeline direkt,
-oder reicht es, die dbt-Logik auf den neuen `base.hotlap_events`-Tabellen
-weiter laufen zu lassen?
-
-**Empfehlung:** dbt-Logik vorläufig auf den neuen Daten weiter laufen
-lassen (sie ist korrekt und nicht-trivial). Erst bei Phase 3 entscheiden
-ob sie in Python übertragen wird.
+**Entscheid:** dbt-Hotlap-Gruppenbildung (`base.hotlapping` mit `hotlap_group_id`)
+läuft vorerst auf den neuen `base.hotlap_events`-Tabellen weiter. NICHT nach
+Python portieren — ist nicht-trivial korrekt und ggf. Phase-3-Thema.

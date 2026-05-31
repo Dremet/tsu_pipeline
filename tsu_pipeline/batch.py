@@ -70,29 +70,31 @@ def load_folder(
         "error_files": [],
     }
 
-    for i, f in enumerate(files):
-        if progress_fn:
-            progress_fn(i + 1, len(files), str(f))
+    # Single persistent connection with per-file transactions (autocommit=True so
+    # conn.transaction() creates a real transaction, not a savepoint).
+    with psycopg.connect(db_url, autocommit=True) as conn:
+        for i, f in enumerate(files):
+            if progress_fn:
+                progress_fn(i + 1, len(files), str(f))
 
-        try:
-            with psycopg.connect(db_url) as conn:
-                cursor = conn.cursor()
-                result = load_event(f, server, cursor)
-                # psycopg3: context manager commits on clean exit
-        except Exception as exc:
-            summary["errors"] += 1
-            summary["error_files"].append((str(f), str(exc)))
-            logger.warning("Error loading %s: %s", f, exc)
-            continue
+            try:
+                with conn.transaction():
+                    cursor = conn.cursor()
+                    result = load_event(f, server, cursor)
+            except Exception as exc:
+                summary["errors"] += 1
+                summary["error_files"].append((str(f), str(exc)))
+                logger.warning("Error loading %s: %s", f, exc)
+                continue
 
-        if result["skipped"]:
-            summary["skipped"] += 1
-            logger.debug("Skipped %s: %s", f, result["skip_reason"])
-        else:
-            summary["loaded"] += 1
-            summary["sessions_new"] += result["sessions"]
-            summary["participations_new"] += result["participations"]
-            summary["drivers_new"] += result["drivers_new"]
-            summary["laps_new"] += result["laps"]
+            if result["skipped"]:
+                summary["skipped"] += 1
+                logger.debug("Skipped %s: %s", f, result["skip_reason"])
+            else:
+                summary["loaded"] += 1
+                summary["sessions_new"] += result["sessions"]
+                summary["participations_new"] += result["participations"]
+                summary["drivers_new"] += result["drivers_new"]
+                summary["laps_new"] += result["laps"]
 
     return summary
