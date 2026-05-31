@@ -67,7 +67,7 @@ echo "[$(timestamp)] *** Pipeline gestartet ***"
 ###############################################################################
 # Datentypen verarbeiten
 ###############################################################################
-for TYPE in hotlapping events heats; do
+for TYPE in hotlapping events heats tripleheat; do
   BASE_DIR="/home/data/${TYPE}"
   ARCHIVE_DIR="${BASE_DIR}/archive"
   mkdir -p "${ARCHIVE_DIR}"

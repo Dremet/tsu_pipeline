@@ -983,3 +983,46 @@ Alle betroffenen Stellen (vollständige Liste):
 #### ELO-Delta/Trend-Hinweis
 
 `heat_elo_delta` und `heat_elo_trend_6` in `v_driver_profile` und der ELO-Liste zeigen `—` bis das erste echte Tripleheat-Rennen über die neue Pipeline läuft und `base.elo_history` Einträge hat.
+
+---
+
+## Session 2026-05-31 — Teil 9 (interaktiv mit André) — Schritt 1: Tripleheat-Ordner-Routing
+
+**Ziel:** Künftige Tripleheat-Rennen landen in `/home/data/tripleheat/` und werden
+als `server='tripleheat'` verarbeitet, bevor das erste echte Rennen am Freitag läuft.
+
+### Was geändert wurde
+
+**`tsura_server_scripts/heat/server/config/Scripts/move_raw_files.sh`**
+- Zielverzeichnis: `/home/data/heats/` → `/home/data/tripleheat/`
+- Trigger-Datei: `new_heat_files.trigger` → `new_tripleheat_files.trigger`
+- `cat "$DEST_DIR"` → `echo "$DEST_DIR"` (schreibt tatsächlichen Pfad in Trigger)
+
+**`tsu_pipeline/run_pipeline.sh`**
+- TYPE-Schleife: `for TYPE in hotlapping events heats` → `… heats tripleheat`
+- `/home/data/heats/` bleibt in der Schleife (Casual-Heat, Schritt 3 erledigt später)
+
+**`tsu_pipeline/pipeline_run.py`**
+- ELO-Bedingung: `server == "heats"` → `server in ("heats", "tripleheat")`
+- SQL-Filter: hardcoded `'heats'` → parametrisiert `%s` (mit `server`)
+- `update_elo(pending, cur)` → `update_elo(pending, cur, server=server)`
+
+`elo.py` braucht keine Änderung — die Funktion ist bereits per `server`-Parameter
+konfigurierbar und der SQL-Filter ist schon parametrisiert.
+
+### Tests
+22/22 Unit-Tests grün. 5 pre-existing FileNotFoundError (Produktiv-Dateipfade,
+kein Regression).
+
+### Stand
+
+```
+git (tsura_server_scripts): ausstehend
+git (tsu_pipeline):          ausstehend
+```
+
+### Nächste Schritte
+
+**Schritt 1 (jetzt):** Commits + Deploy (s. Deployment-Anleitung unten).
+**Schritt 2:** `relabel_casual_heat.py` auf Ordner-Basis umschreiben + `--apply`.
+**Schritt 3:** Globale Umbenennung `'heats'` → `'tripleheat'` + `'casual_heat'` (nach Schritt 2).

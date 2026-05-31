@@ -53,14 +53,14 @@ def main() -> None:
             print(f"  ERROR: {f}", file=sys.stderr)
         sys.exit(1)
 
-    # ELO update for heats only — idempotent, bootstrap cutoff prevents double-counting
-    if server == "heats" and result["sessions_new"] > 0:
+    # ELO update for tripleheat (and legacy heats label) — idempotent, bootstrap cutoff prevents double-counting
+    if server in ("heats", "tripleheat") and result["sessions_new"] > 0:
         with psycopg.connect(db_url) as conn:
             cur = conn.cursor()
             cur.execute(
                 """
                 SELECT rs.id FROM base.race_sessions rs
-                WHERE rs.server = 'heats'
+                WHERE rs.server = %s
                   AND rs.utc_start_time > COALESCE(
                       (SELECT MAX(last_race_at) FROM base.elo_bootstrap),
                       '-infinity'::timestamptz
@@ -71,11 +71,12 @@ def main() -> None:
                       WHERE rp.session_id = rs.id
                   )
                 ORDER BY rs.utc_start_time
-                """
+                """,
+                (server,),
             )
             pending = [row[0] for row in cur.fetchall()]
             if pending:
-                inserted = update_elo(pending, cur)
+                inserted = update_elo(pending, cur, server=server)
                 print(f"[pipeline] ELO: {inserted} new entries for {len(pending)} sessions")
             else:
                 print("[pipeline] ELO: no new sessions to process")
