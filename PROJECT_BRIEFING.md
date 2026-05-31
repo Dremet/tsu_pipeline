@@ -224,6 +224,44 @@ Steam OpenID-Login: Steam-ID ist bereits der Identitätsschlüssel im Datenmodel
 Alte `source.*`/`enriched.*`-Tabellen entfernen, `tsu_analyzer`-Reste tilgen,
 OE-1 umsetzen (synthetische elo_history-Starteinträge statt elo_bootstrap).
 
+## Design-Richtung tsura2 (entschieden 2026-05-31)
+
+Diese Richtung gilt als gesetzt. Sie ersetzt keine Entscheidungen aus dem
+Briefing, sondern ergänzt sie um das konkrete Look-&-Feel.
+
+### Referenz und Ausgangspunkt
+- **tsura2 ist die Design-Referenz** — der bestehende Look (Bootstrap 5,
+  Formula-1-Dunkelthema, Farben, Fonts) wird übernommen, nicht neu erfunden.
+- Die alte `tsura_website` ist irrelevant und wird nicht betrachtet.
+
+### Was aus tsura2 unverändert übernommen wird
+- Genereller Look (Dark Theme, Farbpalette, Navbar-Struktur)
+- Hotlapping-Zeiten-Darstellung (`M:SS.ffff`-Format, Sektor-Hervorhebung)
+- Live-Serveranzeige ("wer ist gerade auf welchem Server") auf der Startseite
+
+### Was gezielt neu gebaut oder angepasst wird
+- **Einzelergebnis-Ansichten für Events + Tripleheats** — fehlten in tsura2
+  komplett oder waren kaputt. Jede Race-Session bekommt eine eigene Seite mit
+  Startreihenfolge, Endposition, Zeiten, Fahrzeugen, Teilnehmerfeld.
+- **Startseite überarbeitet** — übersichtlich zeigen, was die Seite kann;
+  außerdem eine kurze englische Erklärung, was tsura.org überhaupt ist (für
+  Außenstehende verständlich, ohne zu lang zu werden).
+- **Hotlapping: nur Rangliste** — keine Einzelsession-Ansicht. Anzeige-Regel
+  aus Briefing (Abschnitt "Verarbeitungs- und Anzeige-Regeln").
+- **Events + Tripleheats: Einzelergebnisse** — Rennergebnis-Seite pro Session.
+
+### Login-Prinzip (gilt ab Phase 4)
+- Steam-Login ist **additiv** — ohne Login ist die gesamte Seite einsehbar.
+  Login schaltet nie Inhalte weg, sondern fügt personalisierte Features hinzu
+  (z.B. eigenes Profil hervorheben, Favoriten).
+- Die DB ist darauf ausgelegt: `steam_id` ist der Identitätsschlüssel.
+
+### Deployment
+- Entwicklung: `/home/dremet/tsura/tsura2/` (dremet-User), Push nach
+  `github.com/Dremet/tsura2` (SSH).
+- Deployment: `git pull` als `tsura`-User auf carrot — bewusster, manueller
+  Schritt durch André.
+
 ## Arbeitsweise
 
 - Claude Code arbeitet als User `dremet` in einem Arbeitsbereich unter `~`, getrennt
