@@ -264,106 +264,74 @@ Folgende Dateien neu erstellt / geändert (noch nicht committed):
 
 ## Session 2026-05-31 — Teil 2 (interaktiv mit André)
 
-**Ziel:** Kritische Migrationsschritte gemeinsam ausführen: Backup, historische Tripleheat-Daten laden, ELO-Bootstrap migrieren.
+**Etappes 1–3: Tripleheat-Migration in Test-DB abgeschlossen.**
 
-### Was gemacht wurde
-
-#### Backup der racing-DB
-
+### Etappe 1 — Backup racing-DB
 ```
-backups/racing_db_20260531_090729.dump  — 96 MB (pg_dump custom format)
+backups/racing_db_20260531_090729.dump  (96 MB, pg_dump custom format)
 ```
+Vollständiges Backup als Sicherheitspuffer. Operativ relevant daraus: nur
+`tsu.elo_heat` + `tsu.drivers`.
 
-Enthält das gesamte racing-DB-Schema (inkl. `tsu.*`, `karting.*`, alle anderen Schemas) als Sicherheitspuffer. Operativ relevant sind daraus nur `tsu.elo_heat` + `tsu.drivers`.
+### Etappe 2 — Historische Tripleheat-Rennen als Display-Daten geladen
+Quelle: `/home/data/history_triple_heat_hammock`
 
-#### Etappe 2: Historische Tripleheat-Rennen geladen
-
-Quelle: `/home/data/history_triple_heat_hammock` (318 Dateien, direkt im Ordner)
-
-| Kennzahl | Wert |
+| | |
 |---|---|
-| Dateien gesamt | 318 |
-| Geladen | 305 |
-| Übersprungen (null-JSON) | 13 |
-| Fehler | 0 |
-| Neue Race-Sessions | 305 |
-| Neue Teilnahmen | 3.669 |
-| Neue Fahrer | 120 |
-| Laufzeit | 2.6s |
+| Dateien | 318 (13 null-JSON übersprungen) |
+| Geladen | 305 Race-Sessions, 3.669 Teilnahmen, 120 Fahrer |
+| Zeitraum | Dez 2024 – Mai 2026 |
+| finishedState | 255× Finished, 45× Stopped_GivePoints, 5× Stopped_NoPoints |
 
-Zeitraum: Dez 2024 – Mai 2026. Feldgrößen 6–20 Fahrer (typisch 9–15).  
-finishedState: 255× Finished, 45× Stopped_GivePoints, 5× Stopped_NoPoints.
+Diese Sessions liegen in `base.race_sessions` für Profilanzeige und Rennergebnisse.
+Sie tragen **nicht** zur ELO-Berechnung bei — ihr ELO-Beitrag steckt im Bootstrap.
 
-3 Rennen liegen NACH dem Bootstrap-Stichtag (21:05, 21:20, 21:41 Uhr am 2026-05-29) — diese hat die alte racing-DB noch nicht verarbeitet. Sie sind legitimerweise "neu" und werden später von `update_elo` erfasst.
+**3 Limbo-Rennen** (2026-05-29 21:05–21:41): Diese Rennen existieren in den
+Rohdateien, wurden von der alten racing-DB aber noch nicht verarbeitet. Sie
+liegen nach dem Bootstrap-Stichtag und bekommen ELO, sobald `update_elo`
+das nächste Mal läuft.
 
-#### Etappe 3: ELO-Bootstrap aus racing-DB migriert
+### Etappe 3 — ELO-Bootstrap 1:1 aus racing-DB übernommen
+`migrate_elo_history.py --apply` ausgeführt:
+- 120 Fahrer in `base.drivers` geupserted
+- 120 ELO-Werte in `base.elo_bootstrap` gesetzt
+- Bootstrap-Stichtag: `2026-05-29 19:41:47` (`MAX(last_race_at)`)
 
-`migrate_elo_history.py --apply` ausgeführt. Ergebnis:
+Vergleich racing-DB ↔ Test-DB: **Δ=0.0 für alle 120 Fahrer** — exakte Kopie ✓  
+`base.elo_history` ist leer (absichtlich): der Bootstrap IST der ELO-Stand.
 
-- 120 Fahrer upserted in `base.drivers`
-- 120 ELO-Bootstrap-Werte in `base.elo_bootstrap`
-- Bootstrap-Stichtag: `MAX(last_race_at) = 2026-05-29 19:41:47`
-
-**ELO-Vergleich racing-DB vs. Test-DB (Δ=0.0 für alle 15 → exakte Kopie):**
-
-| Fahrer | Racing-ELO | Test-ELO | Δ |
-|---|---|---|---|
-| HENDRIK | 1545.4 | 1545.4 | 0.0 |
-| McVizn | 1530.0 | 1530.0 | 0.0 |
-| Frozeni | 1467.8 | 1467.8 | 0.0 |
-| Cosanderi | 1363.1 | 1363.1 | 0.0 |
-| Igiava | 1332.8 | 1332.8 | 0.0 |
-| Jormeli | 1276.8 | 1276.8 | 0.0 |
-| ... | | | |
-
-Bootstrap ist **exakte Kopie** der racing-DB — kein Δ nirgends ✓
-
-**ELO ohne Geschichte:** Kein Fahrer mit 0 Rennen in geladener Historie — alle 120 Bootstrap-Fahrer tauchen in den 305 historischen Rennen auf ✓
-
-75 Fahrer haben 1–10 Rennen in der geladenen Historie (gelegentliche Teilnehmer), 45 Fahrer haben >10 Rennen (aktive Stammfahrer).
-
-#### Code-Schutz: Bootstrap-Cutoff strukturell erzwungen
-
-`update_elo` weigert sich jetzt strukturell, Sessions vor/beim Bootstrap-Stichtag zu verarbeiten:
-
+### Code-Schutz: Stichtagsschutz in `update_elo` verankert
+`update_elo` prüft per SQL-Filter automatisch:
 ```sql
 AND rs.utc_start_time > COALESCE(
     (SELECT MAX(last_race_at) FROM base.elo_bootstrap),
     '-infinity'::timestamptz
 )
 ```
+Historische Sessions (≤ Stichtag) werden strukturell blockiert, nicht durch
+Disziplin. Ohne Bootstrap → Cutoff = -infinity → alle Sessions verarbeitet.
 
-Verhalten:
-- **Mit Bootstrap:** Nur Sessions nach dem Stichtag bekommen ELO. Die 302 historischen Rennen werden automatisch übersprungen — ihr ELO-Beitrag steckt im Bootstrap.
-- **Ohne Bootstrap (Neuinstallation):** Cutoff = -infinity → alle Sessions werden verarbeitet.
+2 neue Tests: `test_elo_bootstrap_cutoff_blocks_historical_sessions`,
+`test_elo_no_bootstrap_processes_all_sessions`. **27/27 Tests grün.**
 
-Zwei neue Tests sichern das ab:
-- `test_elo_bootstrap_cutoff_blocks_historical_sessions` — vor-Cutoff = 0 ELO-Einträge, nach-Cutoff = 2 ELO-Einträge
-- `test_elo_no_bootstrap_processes_all_sessions` — ohne Bootstrap alle Sessions verarbeitet
-
-**Tests: 27/27 grün** (2 neue).
-
-### Stand am Ende der Session
+### Stand
 
 ```
-master: (noch nicht committed — folgt)
-Tests:  27/27 grün
+git: 3fb24c5 (CLAUDE.md) → 9029571 (Migration + Cutoff-Schutz)
+Tests: 27/27 grün
 TEST-DB:
-  - 305 historische Tripleheat-Sessions (server='heats')
-  - 3.669 Teilnahmen
-  - 120 Bootstrap-ELO-Werte (exakte Kopie racing-DB)
-  - ELO-History: leer (absichtlich — Bootstrap ist der ELO-Stand)
+  base.race_sessions       305 (server='heats', historische Tripleheats)
+  base.race_participations 3.669
+  base.drivers             120
+  base.elo_bootstrap       120 (Δ=0.0 zur racing-DB)
+  base.elo_history         0 (leer — Bootstrap ist der Stand)
 ```
 
-### Nächste Schritte
+### Nächster Schritt
 
-**Unmittelbar:**
-1. **Tripleheat-Server auf carrot umstellen** (server-seitige Arbeit, kein Pipeline-Code)
-2. **Neue Tripleheat-Rennen werden durch `update_elo` erfasst** (Post-Cutoff → automatisch ELO)
-
-**Phase 2 (tsura2-Website):**
-3. `mart.v_hotlap_sessions` anlegen
-4. Route `/elo-heats` auf `mart.v_driver_profile` umstellen
+**Tripleheat-Server auf carrot umstellen** (move-Script schreiben, analog
+zu events/hotlapping). Danach landen neue Rennen hier rein, `update_elo`
+rechnet ab dem Stichtag weiter.
 
 ---
 
