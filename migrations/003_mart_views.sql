@@ -84,8 +84,7 @@ LEFT JOIN base.vehicles v  ON hl.vehicle_guid = v.guid;
 
 
 -- ── v_hotlap_sessions ────────────────────────────────────────────────────────
--- One row per hotlap event. Used for the event-list page and the index-page
--- "current combo" card. cars_used is an array of distinct vehicle names.
+-- One row per hotlap event. Kept for backward compatibility / index card.
 
 CREATE OR REPLACE VIEW mart.v_hotlap_sessions AS
 SELECT
@@ -100,8 +99,119 @@ FROM base.hotlap_events he
 JOIN base.tracks t        ON t.guid  = he.track_guid
 JOIN base.hotlap_laps hl  ON hl.event_id = he.id
 LEFT JOIN base.vehicles v ON v.guid  = hl.vehicle_guid
-WHERE he.server = 'hotlapping'   -- exclude practice/quali from event server
+WHERE he.server = 'hotlapping'
 GROUP BY he.id, he.utc_start_time, he.server, t.name;
+
+
+-- ── v_hotlap_grouped_sessions ─────────────────────────────────────────────────
+-- Groups consecutive hotlap events with the same track into one session.
+-- A new session starts only when the track changes (same rule as old dbt).
+-- group_id = id of the first event in the group (stable hash, usable in URLs).
+
+CREATE OR REPLACE VIEW mart.v_hotlap_grouped_sessions AS
+WITH ordered AS (
+    SELECT
+        he.id              AS event_id,
+        he.utc_start_time,
+        he.track_guid,
+        LAG(he.track_guid) OVER (ORDER BY he.utc_start_time, he.id) AS prev_track_guid
+    FROM base.hotlap_events he
+    WHERE he.server = 'hotlapping'
+),
+change_points AS (
+    SELECT *,
+        CASE WHEN track_guid IS DISTINCT FROM prev_track_guid OR prev_track_guid IS NULL
+             THEN 1 ELSE 0 END AS is_new_session
+    FROM ordered
+),
+session_nums AS (
+    SELECT *,
+        SUM(is_new_session) OVER (ORDER BY utc_start_time, event_id) AS session_num
+    FROM change_points
+),
+with_group_id AS (
+    SELECT *,
+        FIRST_VALUE(event_id) OVER (
+            PARTITION BY session_num ORDER BY utc_start_time, event_id
+        ) AS group_id
+    FROM session_nums
+)
+SELECT
+    g.group_id,
+    t.name                                                             AS track_name,
+    MIN(g.utc_start_time)                                             AS session_start,
+    MAX(g.utc_start_time)                                             AS session_end,
+    COUNT(DISTINCT g.event_id)                                        AS event_count,
+    COUNT(DISTINCT hl.steam_id)                                       AS driver_count,
+    COUNT(hl.id)                                                      AS total_laps,
+    ARRAY_AGG(DISTINCT v.name) FILTER (WHERE v.name IS NOT NULL)      AS cars_used,
+    MIN(hl.lap_time)                                                  AS best_lap_time
+FROM with_group_id g
+JOIN base.tracks t         ON t.guid = g.track_guid
+JOIN base.hotlap_laps hl   ON hl.event_id = g.event_id
+LEFT JOIN base.vehicles v  ON v.guid = hl.vehicle_guid
+GROUP BY g.group_id, t.name;
+
+
+-- ── v_hotlap_group_results ────────────────────────────────────────────────────
+-- All laps from all events within a session group, with group_id for filtering.
+-- is_best_lap: best lap per (group, driver) across the entire session.
+
+CREATE OR REPLACE VIEW mart.v_hotlap_group_results AS
+WITH ordered AS (
+    SELECT
+        he.id              AS event_id,
+        he.utc_start_time,
+        he.track_guid,
+        LAG(he.track_guid) OVER (ORDER BY he.utc_start_time, he.id) AS prev_track_guid
+    FROM base.hotlap_events he
+    WHERE he.server = 'hotlapping'
+),
+change_points AS (
+    SELECT *,
+        CASE WHEN track_guid IS DISTINCT FROM prev_track_guid OR prev_track_guid IS NULL
+             THEN 1 ELSE 0 END AS is_new_session
+    FROM ordered
+),
+session_nums AS (
+    SELECT *,
+        SUM(is_new_session) OVER (ORDER BY utc_start_time, event_id) AS session_num
+    FROM change_points
+),
+with_group_id AS (
+    SELECT
+        event_id,
+        track_guid,
+        FIRST_VALUE(event_id) OVER (
+            PARTITION BY session_num ORDER BY utc_start_time, event_id
+        ) AS group_id
+    FROM session_nums
+)
+SELECT
+    hl.id              AS lap_id,
+    hl.event_id,
+    g.group_id,
+    he.utc_start_time,
+    t.name             AS track_name,
+    t.level_type       AS track_type,
+    hl.steam_id,
+    d.name             AS driver_name,
+    d.flag             AS driver_flag,
+    d.clan             AS driver_clan,
+    hl.vehicle_guid,
+    v.name             AS vehicle_name,
+    hl.lap_number,
+    hl.lap_time,
+    hl.sector_times,
+    hl.lap_time = MIN(hl.lap_time) OVER (
+        PARTITION BY g.group_id, hl.steam_id
+    ) AS is_best_lap
+FROM base.hotlap_laps hl
+JOIN with_group_id g       ON g.event_id = hl.event_id
+JOIN base.hotlap_events he ON he.id = hl.event_id
+JOIN base.tracks t         ON t.guid = he.track_guid
+JOIN base.drivers d        ON d.steam_id = hl.steam_id
+LEFT JOIN base.vehicles v  ON v.guid = hl.vehicle_guid;
 
 
 -- ── v_driver_profile ─────────────────────────────────────────────────────────
