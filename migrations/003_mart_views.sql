@@ -83,6 +83,26 @@ JOIN base.drivers d        ON hl.steam_id = d.steam_id
 LEFT JOIN base.vehicles v  ON hl.vehicle_guid = v.guid;
 
 
+-- ── v_hotlap_sessions ────────────────────────────────────────────────────────
+-- One row per hotlap event. Used for the event-list page and the index-page
+-- "current combo" card. cars_used is an array of distinct vehicle names.
+
+CREATE OR REPLACE VIEW mart.v_hotlap_sessions AS
+SELECT
+    he.id              AS event_id,
+    he.utc_start_time,
+    he.server,
+    t.name             AS track_name,
+    COUNT(DISTINCT hl.steam_id)                                       AS driver_count,
+    COUNT(*)                                                          AS total_laps,
+    ARRAY_AGG(DISTINCT v.name) FILTER (WHERE v.name IS NOT NULL)      AS cars_used
+FROM base.hotlap_events he
+JOIN base.tracks t        ON t.guid  = he.track_guid
+JOIN base.hotlap_laps hl  ON hl.event_id = he.id
+LEFT JOIN base.vehicles v ON v.guid  = hl.vehicle_guid
+GROUP BY he.id, he.utc_start_time, he.server, t.name;
+
+
 -- ── v_driver_profile ─────────────────────────────────────────────────────────
 -- One row per driver. Aggregates Tripleheat ELO + hotlap stats + race stats.
 -- Designed for profile pages (Phase 4): "at a glance" for a given steam_id.

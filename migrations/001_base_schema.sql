@@ -97,3 +97,4 @@ CREATE TABLE IF NOT EXISTS base.hotlap_laps (
 DROP VIEW IF EXISTS mart.v_driver_profile CASCADE;
 DROP VIEW IF EXISTS mart.v_race_results CASCADE;
 DROP VIEW IF EXISTS mart.v_hotlap_results CASCADE;
+DROP VIEW IF EXISTS mart.v_hotlap_sessions CASCADE;
