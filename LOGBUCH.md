@@ -453,4 +453,214 @@ TEST-DB:
 
 ---
 
-*Ende Session 2026-05-31 Teil 3*
+## Session 2026-05-31 — Teil 4 (interaktiv mit André)
+
+**Ziel:** Produktivumstellung — Schema, Datenmigration, neue Pipeline-Skripte.
+
+### SCHRITT 1 — Schema-Migration auf Produktiv-DB
+
+Produktiv-DB: `postgresql://data:…@46.232.250.25:5432/tsu` (Schema-Rechte über
+`data`-User; `tsura`-User hat kein CREATE auf `base.*`.)
+
+**Gelöscht (CASCADE):**
+- `base.drivers`, `base.tracks`, `base.vehicles` (kollidieren mit neuen Tabellen)
+- `mart.fact_drivers/fact_elo_events/fact_elo_heats/fact_hotlapping_*/fact_recent_races`
+- Abhängige Views: `mart.dim_drivers`, `mart.dim_tracks`, `mart.dim_vehicles`
+
+**Neu angelegt:**  
+Migrations 001–003 angewendet — alle 8 neuen `base.*`-Tabellen und 3 `mart.*`-Views.  
+Verbleibende alte `base.*`-Tabellen (checkpoint_results, elo_events, elo_heats, etc.)
+koexistieren harmlos; sie werden von der neuen Pipeline nicht genutzt.
+
+**Nebeneffekt:** Erste dbt-Cron-Ausführung nach der Migration schlägt fehl
+(dbt findet base.drivers mit falschem Schema → ERROR_OCCURED). Selbst-stoppend —
+kein unmittelbarer Handlungsbedarf, aber André muss ERROR_OCCURED vor dem
+nächsten Schritt löschen (s. Deployment-Anweisung).
+
+### SCHRITT 2 — Daten-Migration auf Produktiv-DB
+
+`TSU_PROD_POSTGRES_URL` in `.env` ergänzt (data-User, Produktiv-DB).
+
+`migrate_elo_history.py` um `--prod`-Flag erweitert (schreibt in TSU_PROD_POSTGRES_URL).
+
+Ausgeführt:
+```
+migrate_elo_history.py --prod
+→ 120 Drivers upserted, 120 Bootstrap upserted
+
+load_folder('/home/data/history_triple_heat_hammock', 'heats', PROD_URL)
+→ 305 Race-Sessions, 3.669 Participations, 0 Fehler
+```
+
+Verifizierung Produktiv-DB:
+```
+heat_sessions=305, drivers=120, bootstrap=120
+Stichtag (UTC): 2026-05-29 19:41:47 ✓
+```
+
+### SCHRITT 3 — Neue Pipeline-Skripte
+
+**`pipeline_run.py`** (neu in tsu_pipeline/):
+- CLI-Wrapper: nimmt `<type> <raw_path>`, lädt via `load_folder`, ruft `update_elo`
+  für `server='heats'` auf (nur Sessons nach Bootstrap-Stichtag, idempotent).
+- Liest `TSU_PROD_POSTGRES_URL` aus Umgebung.
+
+**`run_pipeline.sh`** (neu in tsu_pipeline/, Deployment nach /home/data/tsu_data/):
+- Ersetzt die alte CSV+dbt-Pipeline.
+- Läuft über hotlapping/events/heats (alle drei Typen, statt bisher nur hotlapping).
+- Ruft `pipeline_run.py` via `uv --project /home/data/tsu_pipeline/ run python …`.
+- Lädt DB-URL aus `/home/data/tsu_pipeline/.env`.
+- Beibehält ERROR_OCCURED-Mechanismus und generate_autorun für hotlapping (nicht-fatal).
+
+**`.env.production`** (Vorlage für André):
+- Kopieren nach `/home/data/tsu_pipeline/.env` beim Deployment.
+
+27/27 Tests weiterhin grün.
+
+### Stand
+
+```
+git (tsu_pipeline): ausstehend
+Produktiv-DB:
+  base.race_sessions       305 (server='heats')
+  base.race_participations 3.669
+  base.drivers             120
+  base.elo_bootstrap       120, Stichtag 2026-05-29 19:41:47 UTC ✓
+  base.elo_history         0 (leer, Bootstrap ist der Stand)
+  mart.v_race_results, v_hotlap_results, v_driver_profile ✓
+Neue Pipeline-Skripte: bereit im Repo, noch nicht deployed
+```
+
+### Deployment-Anweisung für André (manuell)
+
+**Voraussetzung:** Schema und Datenmigration sind abgeschlossen (bereits erledigt).
+
+#### 0. Crons pausieren (data-User auf carrot)
+
+```bash
+# Als data-User:
+crontab -e
+# Beide Zeilen auskommentieren (# voranstellen):
+# * * * * * cd /home/data/tsu_data && ./run_pipeline.sh
+# * * * * * sleep 30; cd /home/data/tsu_data && ./run_pipeline.sh
+```
+
+Prüfen: `crontab -l | grep run_pipeline` → keine aktiven Zeilen.
+
+#### 1. ERROR_OCCURED bereinigen (data-User auf carrot)
+
+```bash
+# Falls ERROR_OCCURED existiert (von der fehlgeschlagenen dbt-Ausführung):
+rm -f /home/data/tsu_data/ERROR_OCCURED
+```
+
+Prüfen: `ls /home/data/tsu_data/ERROR_OCCURED` → "keine Datei".
+
+#### 2. tsu_pipeline deployen (data-User auf carrot)
+
+```bash
+# tsu_pipeline-Repo nach /home/data/tsu_pipeline/ klonen:
+cd /home/data
+git clone /home/dremet/bestandsaufnahme/tsu_pipeline tsu_pipeline
+# ODER direkt vom Git-Remote wenn verfügbar:
+# git clone <remote-url> tsu_pipeline
+
+# .env aus Vorlage erstellen:
+cp /home/data/tsu_pipeline/.env.production /home/data/tsu_pipeline/.env
+# Passwort ist bereits gesetzt, kein Editieren nötig.
+
+# Python-Umgebung initialisieren:
+cd /home/data/tsu_pipeline
+uv sync
+```
+
+Prüfen: `ls /home/data/tsu_pipeline/tsu_pipeline/` → batch.py, elo.py, loader.py etc.
+
+#### 3. run_pipeline.sh ersetzen (data-User auf carrot)
+
+```bash
+# Altes Script sichern:
+cp /home/data/tsu_data/run_pipeline.sh /home/data/tsu_data/run_pipeline.sh.bak
+
+# Neues Script deployen:
+cp /home/data/tsu_pipeline/run_pipeline.sh /home/data/tsu_data/run_pipeline.sh
+chmod +x /home/data/tsu_data/run_pipeline.sh
+
+# pipeline_run.py ist in /home/data/tsu_pipeline/ — kein Kopieren nötig.
+```
+
+Prüfen: `head -3 /home/data/tsu_data/run_pipeline.sh` → neue Version mit "tsu_pipeline".
+
+#### 4. Einen Test-Lauf manuell ausführen (data-User auf carrot)
+
+```bash
+# Muss mindestens einen Ordner in /home/data/hotlapping/ geben:
+ls /home/data/hotlapping/ | grep -v archive | head -5
+
+# Einmaligen Lauf starten (Ausgabe live verfolgen):
+cd /home/data/tsu_data && ./run_pipeline.sh
+
+# Prüfen ob Events korrekt geladen:
+psql "postgresql://data:REDACTED@46.232.250.25:5432/tsu" -c \
+  "SELECT server, COUNT(*) FROM base.race_sessions GROUP BY server ORDER BY server;"
+```
+
+Erwartetes Ergebnis: hotlapping-Sessions erscheinen in `base.race_sessions` (server='hotlapping').
+
+#### 5. Crons reaktivieren (data-User auf carrot)
+
+```bash
+crontab -e
+# Auskommentierung rückgängig machen (# entfernen):
+* * * * * cd /home/data/tsu_data && ./run_pipeline.sh
+* * * * * sleep 30; cd /home/data/tsu_data && ./run_pipeline.sh
+```
+
+Prüfen: `crontab -l` zeigt beide aktiven Zeilen.  
+Warten ~2 Minuten, dann `tail -20 /home/data/tsu_data/pipeline.log` → keine Fehler.
+
+#### 6. Tripleheat-Server-Deployment (heat-User auf dem neuen Heat-Server)
+
+Wenn der neue Tripleheat-Server auf carrot eingerichtet ist:
+
+```bash
+# Als heat-User oder root auf dem carrot Heat-Server:
+# Scripts aus tsura_server_scripts/heat/server/config/Scripts/ deployen:
+cp move_raw_files.sh      /home/heat/server/config/Scripts/
+cp run_event_end.sh       /home/heat/server/config/Scripts/
+cp eventend.src           /home/heat/server/config/Scripts/
+
+chmod +x /home/heat/server/config/Scripts/move_raw_files.sh
+chmod +x /home/heat/server/config/Scripts/run_event_end.sh
+
+# Verzeichnis für Heat-Daten sicherstellen:
+mkdir -p /home/data/heats
+chown data:tsu /home/data/heats
+chmod 775 /home/data/heats
+```
+
+Prüfen: Nach dem nächsten Tripleheat-Rennende erscheint ein neuer Ordner in
+`/home/data/heats/{TIMESTAMP}/raw/` und der Trigger `/home/data/new_heat_files.trigger`
+wird aktualisiert.
+
+```bash
+# ELO-Check nach erstem echtem Rennen:
+psql "postgresql://data:REDACTED@46.232.250.25:5432/tsu" -c \
+  "SELECT COUNT(*) FROM base.elo_history;"
+# Erwartet: > 0
+```
+
+#### 7. Alten racing-Server deaktivieren
+
+Erst wenn Schritte 1–6 erfolgreich und stabil (mind. 1 Woche):
+
+```bash
+# Als root auf dem alten racing-Server (185.170.113.38):
+# tsu_analyzer-Cron deaktivieren (als heat-User oder welcher User es ausführt):
+crontab -e  # tsu_analyzer-Zeile auskommentieren
+# Server abschalten nach Bestätigung
+```
+
+---
+
+*Ende Session 2026-05-31 Teil 4*

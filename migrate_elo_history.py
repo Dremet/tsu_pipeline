@@ -25,7 +25,8 @@ from dotenv import load_dotenv
 load_dotenv(Path(__file__).parent.parent / ".env")
 
 RACING_URL = os.environ.get("OLD_RACING_POSTGRES_URL")
-TEST_URL = os.environ.get("TSU_TEST_POSTGRES_URL")
+TEST_URL   = os.environ.get("TSU_TEST_POSTGRES_URL")
+PROD_URL   = os.environ.get("TSU_PROD_POSTGRES_URL")
 BOOTSTRAP_SQL = (Path(__file__).parent / "migrations" / "002_elo_bootstrap.sql").read_text()
 
 
@@ -104,16 +105,17 @@ def fetch_racing_summary() -> dict:
 
 # ── write to test DB ──────────────────────────────────────────────────────────
 
-def apply_migration(records: list[dict], *, dry_run: bool) -> None:
+def apply_migration(records: list[dict], *, dry_run: bool, target_url: str = None) -> None:
+    url = target_url or TEST_URL
     if dry_run:
-        print("[DRY-RUN] Would write to TSU_TEST_POSTGRES_URL — no DB changes.")
+        print("[DRY-RUN] Would write — no DB changes.")
         return
 
-    with psycopg.connect(TEST_URL, autocommit=True) as conn:
+    with psycopg.connect(url, autocommit=True) as conn:
         # Ensure bootstrap table exists
         conn.execute(BOOTSTRAP_SQL)
 
-    with psycopg.connect(TEST_URL) as conn:
+    with psycopg.connect(url) as conn:
         cur = conn.cursor()
         drivers_upserted = 0
         bootstrap_upserted = 0
@@ -163,14 +165,22 @@ def main() -> None:
         action="store_true",
         help="Write to TSU_TEST_POSTGRES_URL (default: dry-run only)",
     )
+    parser.add_argument(
+        "--prod",
+        action="store_true",
+        help="Write to TSU_PROD_POSTGRES_URL instead of TSU_TEST_POSTGRES_URL",
+    )
     args = parser.parse_args()
-    dry_run = not args.apply
+    dry_run = not (args.apply or args.prod)
 
     if not RACING_URL:
         print("ERROR: OLD_RACING_POSTGRES_URL not set in .env", file=sys.stderr)
         sys.exit(1)
-    if not TEST_URL:
-        print("ERROR: TSU_TEST_POSTGRES_URL not set in .env", file=sys.stderr)
+
+    target_url = PROD_URL if args.prod else TEST_URL
+    target_name = "TSU_PROD_POSTGRES_URL" if args.prod else "TSU_TEST_POSTGRES_URL"
+    if not dry_run and not target_url:
+        print(f"ERROR: {target_name} not set in .env", file=sys.stderr)
         sys.exit(1)
 
     print("=== racing-DB summary ===")
@@ -207,11 +217,11 @@ def main() -> None:
 
     print()
     if dry_run:
-        print("[DRY-RUN] Would INSERT/UPSERT the above into TSU_TEST_POSTGRES_URL.")
-        print("          Run with --apply to execute.")
+        print("[DRY-RUN] Would INSERT/UPSERT the above.")
+        print("          Run with --apply (test-DB) or --prod (production-DB).")
     else:
-        print("=== Applying to TSU_TEST_POSTGRES_URL ===")
-        apply_migration(records, dry_run=False)
+        print(f"=== Applying to {target_name} ===")
+        apply_migration(records, dry_run=False, target_url=target_url)
         print("Done.")
 
 
