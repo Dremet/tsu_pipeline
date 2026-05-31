@@ -39,7 +39,9 @@ SELECT
          ORDER BY rs2.utc_start_time DESC
          LIMIT 1),
         eb.elo_value
-    ) AS current_elo
+    ) AS current_elo,
+    -- Human participant count per session (bots excluded by WHERE is_ai=false)
+    COUNT(*) OVER (PARTITION BY rs.id) AS human_participant_count
 FROM base.race_participations rp
 JOIN base.race_sessions rs    ON rp.session_id = rs.id
 JOIN base.tracks t            ON rs.track_guid = t.guid
@@ -238,6 +240,31 @@ WITH elo_current AS (
     FROM base.drivers d
     LEFT JOIN base.elo_bootstrap eb ON eb.steam_id = d.steam_id
 ),
+elo_ranked AS (
+    -- Rank elo_history entries per driver by recency for delta/trend
+    SELECT
+        rp.steam_id,
+        eh.elo_delta,
+        ROW_NUMBER() OVER (
+            PARTITION BY rp.steam_id
+            ORDER BY rs.utc_start_time DESC
+        ) AS rn
+    FROM base.elo_history eh
+    JOIN base.race_participations rp ON rp.id = eh.participation_id
+    JOIN base.race_sessions rs       ON rs.id = rp.session_id
+    WHERE rs.server = 'heats'
+),
+elo_last AS (
+    SELECT steam_id, elo_delta AS heat_elo_delta
+    FROM elo_ranked
+    WHERE rn = 1
+),
+elo_trend AS (
+    SELECT steam_id, SUM(elo_delta) AS heat_elo_trend_6
+    FROM elo_ranked
+    WHERE rn <= 6
+    GROUP BY steam_id
+),
 heat_stats AS (
     -- Only count sessions AFTER the bootstrap cutoff to avoid double-counting.
     -- Historical Tripleheat sessions (loaded for display) are already reflected
@@ -300,9 +327,26 @@ SELECT
     COALESCE(hls.hotlap_events,     0) AS hotlap_events,
     COALESCE(hls.hotlap_total_laps, 0) AS hotlap_total_laps,
     hls.hotlap_alltime_best,
-    hls.hotlap_last_session_at
+    hls.hotlap_last_session_at,
+    -- ELO delta and trend from live elo_history (NULL until first live Tripleheat race)
+    el.heat_elo_delta,
+    et.heat_elo_trend_6
 FROM base.drivers d
 LEFT JOIN elo_current   ec  ON ec.steam_id  = d.steam_id
+LEFT JOIN elo_last      el  ON el.steam_id  = d.steam_id
+LEFT JOIN elo_trend     et  ON et.steam_id  = d.steam_id
 LEFT JOIN heat_stats    hs  ON hs.steam_id  = d.steam_id
 LEFT JOIN event_stats   es  ON es.steam_id  = d.steam_id
 LEFT JOIN hotlap_stats  hls ON hls.steam_id = d.steam_id;
+
+
+-- ── Grants ───────────────────────────────────────────────────────────────────
+-- tsura (website read-only user) needs SELECT on all mart views.
+-- CREATE OR REPLACE VIEW preserves existing grants, but we re-grant idempotently.
+
+GRANT SELECT ON mart.v_race_results            TO tsura;
+GRANT SELECT ON mart.v_hotlap_results          TO tsura;
+GRANT SELECT ON mart.v_hotlap_sessions         TO tsura;
+GRANT SELECT ON mart.v_hotlap_grouped_sessions TO tsura;
+GRANT SELECT ON mart.v_hotlap_group_results    TO tsura;
+GRANT SELECT ON mart.v_driver_profile          TO tsura;
