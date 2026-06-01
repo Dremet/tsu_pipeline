@@ -36,7 +36,7 @@ def load_folder(
     Parameters
     ----------
     folder_path  : root directory to scan
-    server       : server label written to DB ('hotlapping', 'events', 'heats')
+    server       : server label written to DB ('hotlapping', 'events', 'tripleheat', 'casual_heat')
     db_url       : psycopg3-compatible connection string
     recursive    : whether to search subdirectories (default True)
     progress_fn  : optional callback(current_index, total, filepath) for progress

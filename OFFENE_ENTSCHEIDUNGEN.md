@@ -26,18 +26,18 @@ als Fallback, wenn noch kein `elo_history`-Eintrag existiert.
 
 ## OE-2: `server`-Label für den (umziehenden) Tripleheat-Server
 
-**STATUS: ENTSCHIEDEN (2026-05-30)**
+**STATUS: ENTSCHIEDEN + UMGESETZT (2026-05-31 / 2026-06-01)**
 
-**Entschied:** Server-Label bleibt dauerhaft `'heats'`.
+**Entscheid:** Server-Label ist `'tripleheat'` (wurde umbenannt).
 
-**Wichtig:** Im neuen System (tsu_pipeline) bedeutet `server = 'heats'` immer
-Tripleheat — nicht den Casual-Heat-Server (der heißt `'casual_heat'` oder wird
-ignoriert). Die gleichnamige Casual-Heat-Ordnerstruktur unter `/home/data/heats`
-dient nur als Format-Beispiel für den Race-Modus. Tripleheat-Echtdaten liegen
-heute noch auf dem alten racing-Server und landen erst nach der Migration hier.
+Ursprüngliche Entscheidung war `'heats'` zu behalten; in Session 2026-06-01
+wurde die Umbenennung doch durchgeführt (saubere Trennung von `'casual_heat'`).
 
-**Kein Umbau nötig.** ELO-Filter (`server = 'heats'`) und mart-Views sind
-konsistent. Eine Umbenennung würde eine separate Migration auslösen.
+**Aktueller Stand:**
+- `server='tripleheat'` = TripleHeat-Rennen (ELO-berechnet)
+- `server='casual_heat'` = Casual-Heat-Rennen (kein ELO)
+- `/home/data/heats/` = Ordnername für Casual-Heat-Rohdaten (historical)
+- `/home/data/tripleheat/` = neuer Eingangsordner für Live-Tripleheat-Daten
 
 ---
 

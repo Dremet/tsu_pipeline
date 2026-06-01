@@ -5,7 +5,7 @@ pipeline_run.py — single-folder pipeline step, called by run_pipeline.sh.
 Usage:
     uv run python pipeline_run.py <type> <raw_path>
 
-    type:     hotlapping | events | heats
+    type:     hotlapping | events | tripleheat | casual_heat
     raw_path: path to the /raw/ subfolder containing *_event.json files
 
 Reads DB_URL from environment (TSU_PROD_POSTGRES_URL or DATABASE_URL).

@@ -321,7 +321,7 @@ def load_event(json_path: str | Path, server: str, conn) -> dict:
     Parameters
     ----------
     json_path : path to the *_event.json file
-    server    : server label stored in DB, e.g. 'events', 'heats', 'hotlapping'
+    server    : server label stored in DB, e.g. 'events', 'tripleheat', 'hotlapping'
     conn      : open psycopg3 connection (caller manages transaction)
 
     Returns a result dict (see module docstring).

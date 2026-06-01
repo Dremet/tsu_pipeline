@@ -16,17 +16,13 @@ weiteren Dokumente du heranziehen sollst.
   begründeten Annahme weiterarbeiten. Entschiedene Punkte als ENTSCHIEDEN
   markieren und ins PROJECT_BRIEFING.md übernehmen.
 
-## Themenspezifisch (nur wenn relevant)
-- **WEBSITE_ANBINDUNG.md** — Vorbereitung für Phase 2 (tsura2 auf neue
-  mart-Views umstellen). Erst in Phase 2 relevant.
-
 ## Archiv (nicht aktiv laden, nur bei Rückfragen zur Historie)
 - **BESTANDSAUFNAHME.md** — initiale Erkundung der Repos/DBs.
 - **PHASE0_ANALYSE.md** — Auswertung der Beispieldateien + dbt-Empfehlung.
 
 ## Grundregeln (gelten immer)
-- Test-DB (TSU_TEST_POSTGRES_URL) beschreiben. /home/data, Produktiv-tsu-DB
-  und racing-DB NUR lesen.
+- Test-DB (TSU_TEST_POSTGRES_URL) beschreiben. /home/data und Produktiv-tsu-DB
+  nur bei explizit bewusstem Deployment-Schritt schreiben.
 - Nach jedem Teilschritt committen und LOGBUCH.md aktuell halten.
 - Am Ende jeder Session: sauberer Abschluss-Eintrag im LOGBUCH (Stand +
   nächste Schritte).
@@ -49,15 +45,19 @@ tsu_pipeline/
 │   ├── batch.py      # load_folder() — rekursiv alle *_event.json laden
 │   ├── loader.py     # load_event()  — eine Datei parsen + in DB schreiben
 │   ├── validate.py   # Sentinel-Hotlaps und ungültige Events rausfiltern
-│   ├── elo.py        # update_elo()  — ELO nur für server='heats' (Tripleheat)
+│   ├── elo.py        # update_elo()  — ELO nur für server='tripleheat'
 │   └── keys.py       # stabile md5-basierte IDs (session, participation, …)
 ├── migrations/
 │   ├── 001_base_schema.sql   # base.* Tabellen
-│   ├── 002_elo_bootstrap.sql # base.elo_bootstrap (Legacy-ELO-Seed)
-│   └── 003_mart_views.sql    # mart.v_race_results, v_hotlap_results, v_driver_profile
-├── tests/            # 27 Tests, alle grün
-├── migrate_elo_history.py  # Einmalig: ELO-Historie aus racing-DB importieren
-├── e2e_validate.py         # E2E-Validierung gegen echten Datenbestand
+│   ├── 002_elo_bootstrap.sql # base.elo_bootstrap (Legacy-ELO-Seed, leer nach OE-1)
+│   ├── 003_mart_views.sql    # mart.v_race_results, v_hotlap_results, v_driver_profile, …
+│   └── 004_fastest_lap.sql   # fastest_lap-Spalte in race_participations
+├── tests/            # 22 Unit-Tests grün (5 pre-existing FileNotFoundError)
+├── migrate_elo_history.py  # Werkzeug: ELO-Historie aus racing-DB importieren
+├── recalc_elo.py           # Werkzeug: ELO-Vollneuberechnung für alle tripleheat-Sessions
+├── e2e_validate.py         # E2E-Validierung gegen echten Datenbestand (Test-DB)
+├── pipeline_run.py         # CLI-Wrapper für run_pipeline.sh
+├── run_pipeline.sh         # Deployment-Script nach /home/data/tsu_data/
 ├── PROJECT_BRIEFING.md     # ← hier lesen
 └── LOGBUCH.md              # ← hier lesen
 ```
@@ -65,35 +65,36 @@ tsu_pipeline/
 ### Umgebung + Datenbanken
 ```bash
 # .env liegt in ~/bestandsaufnahme/.env (ein Verzeichnis höher)
-TSU_TEST_POSTGRES_URL   # Test-DB auf localhost — hier darf geschrieben werden
-TSU_HOTLAPPING_POSTGRES_URL  # Produktiv-tsu-DB    — NUR lesen
-OLD_RACING_POSTGRES_URL      # Alter racing-Server — NUR lesen
+TSU_TEST_POSTGRES_URL    # Test-DB auf localhost — hier darf geschrieben werden
+TSU_PROD_POSTGRES_URL    # Produktiv-tsu-DB (data-User)
 
 # Abhängigkeiten + Tests
 uv run pytest tests/        # alle Tests ausführen
-uv run migrate_elo_history.py           # Dry-run: ELO-Vergleich anzeigen
-uv run migrate_elo_history.py --apply   # scharf: in Test-DB schreiben
-uv run e2e_validate.py                  # vollständige E2E-Validierung
+uv run e2e_validate.py      # vollständige E2E-Validierung gegen Test-DB
 ```
 
-### Datenpfade (read-only)
+### Datenpfade (auf carrot, read-only für dremet)
 ```
-/home/data/hotlapping/          # Hotlap-Server-Daten (21.380 Dateien)
-/home/data/events/              # Liga-Event-Daten (1.074 Dateien)
-/home/data/heats/               # Casual-Heat (162 Dateien, nicht projektrelevant)
-/home/data/history_triple_heat_hammock/  # historische Tripleheat-Rennen (305 geladen)
+/home/data/hotlapping/                   # Hotlap-Server-Daten
+/home/data/events/                       # Liga-Event-Daten
+/home/data/heats/                        # Casual-Heat-Rohdaten (server='casual_heat')
+/home/data/tripleheat/                   # Tripleheat-Rohdaten (server='tripleheat')
+/home/data/history_triple_heat_hammock/  # historische Tripleheat-Rennen (305 Sessions)
 ```
 
 ### Wichtige Designentscheidungen (Kurzfassung)
 Vollständig in PROJECT_BRIEFING.md — hier nur die häufig vergessenen:
 
-- **ELO nur für `server='heats'`** — das ist Tripleheat. Liga-Events und
-  Hotlapping bekommen strukturell kein ELO (SQL-Filter in `update_elo`).
+- **ELO nur für `server='tripleheat'`** — Liga-Events und Hotlapping
+  bekommen strukturell kein ELO (SQL-Filter in `update_elo`).
 - **Bootstrap-Stichtag** — `update_elo` überspringt automatisch Sessions vor
-  `MAX(elo_bootstrap.last_race_at)`. Historische Rennen sind Display-Daten,
-  ihr ELO steckt bereits im Bootstrap. Nie `update_elo` auf historische
-  Sessions forcieren.
+  `MAX(elo_bootstrap.last_race_at)` (solange elo_bootstrap noch Einträge hat).
+  Historische Rennen sind Display-Daten, ihr ELO steckt bereits in elo_history.
 - **Bots** — kein FK auf `base.drivers`, kein ELO, keine Statistiken.
   Strukturell ausgeschlossen, nicht nur "nicht vorgesehen".
 - **`finishedState` egal** — `'Finished'` und `'Stopped_GivePoints'` werden
   gleich behandelt.
+- **Server-Labels:** `'tripleheat'` = TripleHeat-Rennen, `'casual_heat'` =
+  Casual-Heat, `'events'` = Liga-Events, `'hotlapping'` = Hotlapping-Server.
+  Der Ordner `/home/data/heats/` enthält Casual-Heat-Daten und wird mit
+  server='casual_heat' geladen.

@@ -5,7 +5,7 @@ e2e_validate.py — End-to-End validation against real data volumes.
 Steps:
   1. Apply migrations (idempotent) to TEST-DB
   2. Seed elo_bootstrap + drivers from racing-DB
-  3. Load all *_event.json from /home/data/{hotlapping,events,heats}
+  3. Load all *_event.json from /home/data/{hotlapping,events,heats,tripleheat}
   4. Run update_elo for Tripleheat sessions
   5. Plausibility checks (no sentinels, no bots in drivers, no duplicates)
   6. Compare Tripleheat ELO ranking with racing-DB values
@@ -34,9 +34,10 @@ TEST_URL = os.environ["TSU_TEST_POSTGRES_URL"]
 RACING_URL = os.environ["OLD_RACING_POSTGRES_URL"]
 
 DATA_ROOTS = {
-    "hotlapping": Path("/home/data/hotlapping"),
-    "events":     Path("/home/data/events"),
-    "heats":      Path("/home/data/heats"),
+    "hotlapping":  Path("/home/data/hotlapping"),
+    "events":      Path("/home/data/events"),
+    "casual_heat": Path("/home/data/heats"),
+    "tripleheat":  Path("/home/data/history_triple_heat_hammock"),
 }
 
 MIGRATIONS = [
@@ -133,7 +134,7 @@ def seed_bootstrap() -> int:
 def load_all_data() -> dict[str, dict]:
     from tsu_pipeline.batch import load_folder
 
-    hdr("STEP 3 — Load all data from /home/data/{hotlapping,events,heats}")
+    hdr("STEP 3 — Load all data from /home/data/{hotlapping,events,heats,tripleheat}")
     results = {}
 
     for server, path in DATA_ROOTS.items():
@@ -176,22 +177,22 @@ def load_all_data() -> dict[str, dict]:
 def run_elo_update() -> int:
     from tsu_pipeline.elo import update_elo
 
-    hdr("STEP 4 — update_elo for Tripleheat sessions (server='heats')")
+    hdr("STEP 4 — update_elo for Tripleheat sessions (server='tripleheat')")
 
     with psycopg.connect(TEST_URL) as conn:
         cur = conn.cursor()
         cur.execute(
-            "SELECT id FROM base.race_sessions WHERE server = 'heats' ORDER BY utc_start_time"
+            "SELECT id FROM base.race_sessions WHERE server = 'tripleheat' ORDER BY utc_start_time"
         )
         session_ids = [row[0] for row in cur.fetchall()]
-        print(f"  Heats sessions in DB: {len(session_ids)}")
+        print(f"  Tripleheat sessions in DB: {len(session_ids)}")
 
         if not session_ids:
-            print("  (no heats sessions — skip)")
+            print("  (no tripleheat sessions — skip)")
             return 0
 
         t0 = time.monotonic()
-        inserted = update_elo(session_ids, cur, server="heats")
+        inserted = update_elo(session_ids, cur, server="tripleheat")
         elapsed = time.monotonic() - t0
 
         print(f"  ELO rows inserted:    {fmt_int(inserted)}")
@@ -323,7 +324,7 @@ def compare_elo() -> None:
         )
         racing_top = cur.fetchall()
 
-    # Fetch top-15 from test-DB (bootstrap fallback, since no new heats data)
+    # Fetch top-15 from test-DB
     with psycopg.connect(TEST_URL) as conn:
         cur = conn.cursor()
         cur.execute(
@@ -336,7 +337,7 @@ def compare_elo() -> None:
                      FROM base.elo_history eh
                      JOIN base.race_participations rp ON rp.id = eh.participation_id
                      JOIN base.race_sessions rs ON rs.id = rp.session_id
-                     WHERE rp.steam_id = d.steam_id AND rs.server = 'heats'
+                     WHERE rp.steam_id = d.steam_id AND rs.server = 'tripleheat'
                      ORDER BY rs.utc_start_time DESC LIMIT 1),
                     eb.elo_value
                 ) AS elo,
@@ -347,7 +348,7 @@ def compare_elo() -> None:
                 SELECT rp.steam_id, COUNT(*) AS heat_races
                 FROM base.race_participations rp
                 JOIN base.race_sessions rs ON rs.id = rp.session_id
-                WHERE rs.server = 'heats' AND rp.is_ai = false
+                WHERE rs.server = 'tripleheat' AND rp.is_ai = false
                 GROUP BY rp.steam_id
             ) hs ON hs.steam_id = d.steam_id
             WHERE COALESCE(
@@ -355,7 +356,7 @@ def compare_elo() -> None:
                  FROM base.elo_history eh
                  JOIN base.race_participations rp ON rp.id = eh.participation_id
                  JOIN base.race_sessions rs ON rs.id = rp.session_id
-                 WHERE rp.steam_id = d.steam_id AND rs.server = 'heats'
+                 WHERE rp.steam_id = d.steam_id AND rs.server = 'tripleheat'
                  ORDER BY rs.utc_start_time DESC LIMIT 1),
                 eb.elo_value
             ) IS NOT NULL
