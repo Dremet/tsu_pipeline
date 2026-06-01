@@ -1320,18 +1320,103 @@ automatisch ausläuft. Testweg ohne komplettes Rennen:
 - Prüfen ob Dateien in `/home/data/tripleheat/{TIMESTAMP}/raw/` landen
 - Prüfen ob `pipeline.log` eine neue tripleheat-Verarbeitung zeigt
 
-**1. Startseite-Layout überarbeiten**
-- Linke Spalte: Current Hotlapping Combo + darunter die drei Server-Übersichten
-  (TripleHeat / Event / Casual-Heat)
-- Rechte Spalte: aktuell laufende Server (bleibt)
+✅ Alle drei Punkte in Session 2026-06-01 Teil 3 abgeschlossen (s.u.).
 
-**2. Fahrerprofil-Verbesserungen**
-- Hotlapping "All-time best" entfernen (unterschiedliche Streckenlängen → sinnlos);
-  stattdessen z.B. Anzahl Top-5-Finishes zeigen
-- Flaggen-Grafik (Icon/Bild) statt Emoji links neben dem Nickname; gleiches
-  in den Rennergebnissen
+---
 
-**3. Rennergebnisse-Verbesserungen**
-- Zeitrückstand zum Führenden im Format `+MM:SS.FFF` (FFF = Millisekunden)
-- Neue Spalte „schnellste Rundenzeit"
-- Beste Rundenzeit lila markieren
+## Session 2026-06-01 Teil 3 (interaktiv mit André) — Layout-Overhaul
+
+### Was gebaut wurde
+
+#### tsu_pipeline (ab52571 — gepusht)
+
+- `migrations/004_fastest_lap.sql`: neue Spalte `fastest_lap FLOAT` (nullable)
+  in `base.race_participations`. Historische Zeilen bleiben NULL.
+- `tsu_pipeline/loader.py`: In `_load_race` wird jetzt `_extract_lap_data`
+  aufgerufen und das Minimum als `fastest_lap` gespeichert.
+- `migrations/003_mart_views.sql`:
+  - `v_race_results`: neue Spalte `fastest_lap` (am Ende, nach `human_participant_count`)
+  - `v_driver_profile`: neues CTE `hotlap_top5_stats` + Spalte `hotlap_top5`
+    (Anzahl gruppierter Hotlap-Sessions mit Rang ≤ 5 der Bestzeit, am Ende)
+
+#### tsura2 (430ff57 — gepusht)
+
+**Startseite:**
+- Zwei-Spalten-Layout: links (col-lg-8) = Hotlap-Combo + drei Server-Übersichten
+  (Reihenfolge: Casual-Heat, TripleHeat, Event); rechts (col-lg-4) = aktive Server.
+- Intro-Text bleibt als volle Breite oben.
+
+**Flaggen:**
+- `base.html`: flag-icons CDN (`cdn.jsdelivr.net/npm/flag-icons@7.2.3`)
+- `routes.py`: `_FLAG_MAP` → `_FLAG_CODE_MAP` (ISO-3166-1 alpha-2 Codes statt Emojis);
+  `_flag_emoji` → `_flag_code`; `elo_heats`-Route ergänzt `flag_code` pro Record.
+- Templates: `<span class="fi fi-{code}"></span>` in `driver.html`, `race_detail.html`,
+  `elo_heats.html` — Flagge links neben Nickname.
+
+**Rennergebnisse (race_detail):**
+- Zeitrückstand immer `+MM:SS.FFF` (zero-padded Minuten, 3 ms-Stellen).
+- Neue Spalte "Best Lap" (pro Fahrer schnellste Runde; NULL-historisch = "—").
+- Insgesamt schnellste Runde lila (`#c084fc`, bold).
+
+**Fahrerprofil (driver):**
+- "All-time best" entfernt; ersetzt durch "Top-5 finishes: {{ profile.hotlap_top5 }}"
+  (streckenunabhängige Kennzahl).
+
+### Flaggen-Quelle
+
+Library: **lipis/flag-icons** (MIT-Lizenz)
+CDN: `https://cdn.jsdelivr.net/npm/flag-icons@7.2.3/css/flag-icons.min.css`
+Verwendung: `<span class="fi fi-{iso2}"></span>` (z.B. `fi-fi` für Finnland)
+Doku: https://flagicons.lipis.dev/
+
+### Deployment durch André
+
+**Reihenfolge wichtig:** Migration 004 VOR den Views deployen.
+
+#### 1. tsu_pipeline: Migration 004 auf Prod-DB
+
+```bash
+# Als data-User (oder dremet mit SSH-Tunnel):
+psql "postgresql://data:REDACTED@localhost:5432/tsu" \
+  -f /home/data/tsu_pipeline/migrations/004_fastest_lap.sql
+# Erwartet: ALTER TABLE
+```
+
+Prüfen:
+```bash
+psql "postgresql://data:REDACTED@localhost:5432/tsu" \
+  -c "\d base.race_participations" | grep fastest_lap
+```
+
+#### 2. tsu_pipeline: Views deployen
+
+```bash
+cd /home/data/tsu_pipeline && git pull
+psql "postgresql://data:REDACTED@localhost:5432/tsu" \
+  -f migrations/003_mart_views.sql
+# Erwartet: 6× CREATE VIEW, 6× GRANT
+```
+
+#### 3. tsura2 deployen
+
+```bash
+cd /home/tsura/tsura2 && git pull
+sudo systemctl --machine=tsura@ --user restart dev_tsura.service
+```
+
+### Stand
+
+```
+git (tsu_pipeline): ab52571 — gepusht ✓
+git (tsura2):       430ff57 — gepusht ✓
+
+Lokal getestet: alle 7 Routen 200 ✓
+  / (Startseite), /races, /races/<id>, /hotlapping, /hotlapping/<id>,
+  /elo-heats, /driver/<id>
+Flag-Icons: fi fi-nl, fi fi-de, fi fi-gb, … korrekt
+Zeit-Format: +00:05.123, +01:23.456 korrekt
+hotlap_top5: McVizn=27, ChargedJT=17, … korrekt
+fastest_lap: NULL für historische Rennen → zeigt "—"
+
+Prod-Deployment ausstehend (s. Anleitung oben).
+```
