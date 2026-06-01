@@ -1242,3 +1242,96 @@ Website (tsura2):
   tripleheat-Rennen noch nicht sichtbar — Punkt 1 oben
   → In Session 2026-06-01 Teil 11 behoben (s.u.)
 ```
+
+---
+
+## Session 2026-06-01 (interaktiv mit André) — Abschluss Phase 2+3
+
+### Erledigt
+
+**heats → tripleheat/casual_heat (vollständige Trennung + OE-1 Option B)**
+
+Die gemischten `server='heats'`-Sessions in der Prod-DB wurden sauber aufgelöst:
+- 410 'heats'-Sessions gelöscht (305 historische Tripleheats + 105 Casual-Heats)
+- Neu geladen: history_triple_heat_hammock → 305 Sessions `server='tripleheat'`
+- Neu geladen: /home/data/heats/ → 105 Sessions `server='casual_heat'`
+- `elo_bootstrap` TRUNCATED (OE-1 Option B umgesetzt)
+- Volle ELO-Neuberechnung via `recalc_elo.py`: 3666 neue `elo_history`-Einträge
+  für alle 305 historischen Tripleheat-Sessions
+- ELO-Abweichungen gegenüber Bootstrap: max. ±10 Punkte (korrigierte Formel)
+
+Code-Umstellungen (tsu_pipeline + tsura2, alle committed + gepusht):
+- `run_pipeline.sh`: TYPE 'heats' → SERVER='casual_heat'
+- `pipeline_run.py`, `elo.py`: ELO nur noch für server='tripleheat'
+- `003_mart_views.sql`: alle drei `server='heats'` → `'tripleheat'`
+- `recalc_elo.py`: neues Einmal-Script
+- `routes.py`, Templates: alle 4+6 Stellen auf 'tripleheat'/'casual_heat'
+
+**Testrennen entfernt + ELO bereinigt**
+
+Circuit Zolder (31.05., session f31a164f..., 5 TN) vollständig aus Prod-DB
+entfernt (session + participations + 5 elo_history-Einträge). Keine
+Neuberechnung nötig — war chronologisch letztes Rennen, historische ELO
+unverändert. Top-10 danach: HENDRIK 1543.1, McVizn 1528.9, Dremet 1226.1.
+
+**ELO-History-Grafik gefixt**
+
+Zwei Bugs behoben:
+1. `server='heats'` in der Chart-Query → keine Rows → leerer Chart (Phase A)
+2. Chart-Init-Script stand in `{% block content %}`, lief vor Chart.js-Load
+   (in `{% block extra_scripts %}`) → stiller TypeError → leerer Canvas.
+   Fix: Init-Script in `{% block extra_scripts %}` verschoben, direkt nach
+   dem CDN-`<script>`-Tag. Chart startet jetzt bei ELO=1000 und zeigt
+   vollständige ELO-Geschichte (107 Punkte für HENDRIK).
+
+**Startseite / /races umgebaut**
+
+- `/`: Per-Server-Summaries (TripleHeat / Event / Casual-Heat, letzter
+  Renntag, max 5, mit Links) über Hotlap-Karte + Server-Status
+- `/races`: nur noch die vollständige Rennslist (≥4 TN), ohne Summary-Cards
+
+### Stand
+
+```
+git (tsu_pipeline): 1489571 — gepusht ✓
+git (tsura2):       299af6a — gepusht ✓
+
+Produktiv-DB:
+  base.race_sessions:   305 tripleheat + 105 casual_heat + 739 events + 970 hotlapping
+  base.elo_history:     3666 (volle Geschichte, Delta+Trend gefüllt)
+  base.elo_bootstrap:   0 (OE-1 Option B abgeschlossen)
+  Testrennen f31a164f:  entfernt ✓
+
+Deployment durch André ausstehend:
+  cd /home/tsura/tsura2 && git pull
+  sudo systemctl --machine=tsura@ --user restart dev_tsura.service
+  cd /home/data/tsu_pipeline && git pull && uv sync
+  cp /home/data/tsu_pipeline/run_pipeline.sh /home/data/tsu_data/run_pipeline.sh
+  chmod +x /home/data/tsu_data/run_pipeline.sh
+```
+
+### Nächste Schritte (Prio-Reihenfolge)
+
+**0. ZEITKRITISCH — move_raw_files.sh automatisch beim Rennende testen (für Freitag)**
+
+Bisher nur manuell verifiziert. Prüfen ob beim echten Rennende die Pipeline
+automatisch ausläuft. Testweg ohne komplettes Rennen:
+- `eventend.src` / `run_event_end.sh` isoliert auslösen als `tripleheat`-User
+- Prüfen ob Dateien in `/home/data/tripleheat/{TIMESTAMP}/raw/` landen
+- Prüfen ob `pipeline.log` eine neue tripleheat-Verarbeitung zeigt
+
+**1. Startseite-Layout überarbeiten**
+- Linke Spalte: Current Hotlapping Combo + darunter die drei Server-Übersichten
+  (TripleHeat / Event / Casual-Heat)
+- Rechte Spalte: aktuell laufende Server (bleibt)
+
+**2. Fahrerprofil-Verbesserungen**
+- Hotlapping "All-time best" entfernen (unterschiedliche Streckenlängen → sinnlos);
+  stattdessen z.B. Anzahl Top-5-Finishes zeigen
+- Flaggen-Grafik (Icon/Bild) statt Emoji links neben dem Nickname; gleiches
+  in den Rennergebnissen
+
+**3. Rennergebnisse-Verbesserungen**
+- Zeitrückstand zum Führenden im Format `+MM:SS.FFF` (FFF = Millisekunden)
+- Neue Spalte „schnellste Rundenzeit"
+- Beste Rundenzeit lila markieren
