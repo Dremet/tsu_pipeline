@@ -1508,3 +1508,44 @@ Prod-DB:
   enriched.* + source.*: gedroppt ✓
   mart.*: 6 Views, alle aktiv ✓
 ```
+
+---
+
+## Session 2026-06-01 — Repo-Ablösung abgeschlossen
+
+### Erledigt
+
+**generate_autorun.py nach tsu_pipeline migriert + repariert:**
+- Script lebte in `/home/data/tsu_data/` und fragte `tsu.mart.fact_hotlapping_results_best`
+  ab — diese Tabelle wurde in Phase 1 gedroppt. Jedes Ausführen schlug seit Phase 1
+  still fehl (`|| echo "fehlgeschlagen (wird ignoriert)"`).
+- SQL auf neue Views umgeschrieben: `mart.v_hotlap_grouped_sessions` +
+  `mart.v_hotlap_group_results` (best lap per driver in der aktuellen Session).
+- `PG_DATABASE_URL` → `TSU_PROD_POSTGRES_URL`. Dotenv lädt aus Script-Verzeichnis.
+- Verifiziert: 10 Einträge korrekt in `/tmp/test_autorun.src` gegen Prod-DB ✓
+
+**Pipeline vollständig eigenständig:**
+- `run_pipeline.sh`: `LOGFILE` + `ERROR_FILE` von `/home/data/tsu_data/` → `${PIPELINE_DIR}`
+- Cron läuft jetzt direkt aus `tsu_pipeline`: `cd /home/data/tsu_pipeline && ./run_pipeline.sh`
+- Kein Copy-Step mehr nötig — `git pull` wirkt sofort.
+- `/home/data/tsu_data/` und `/home/data/tsu_dbt/` gelöscht.
+
+**Repos aufgeräumt:**
+- Lokale Clones gelöscht: `tsu_analyzer`, `tsura_website`, `tsu_dbt`, alter `tsu_data`-Clone
+- GitHub-Repos archiviert: `tsu_analyzer`, `tsura_website`, `tsu_dbt`, `tsu_data`
+
+### Stand
+
+```
+git (tsu_pipeline): dc92990 — gepusht ✓
+
+Lebende Repos:  tsu_pipeline (Pipeline), tsura2 (Website), tsura_server_scripts (Live-Scripts)
+Server /home/data/:  tsu_pipeline/, tsu_pipeline/pipeline.log, keine tsu_data/ mehr
+Cron (data-User):    cd /home/data/tsu_pipeline && ./run_pipeline.sh (alle 30s)
+```
+
+### Nächste Schritte
+
+1. **Freitag-Test:** move_raw_files.sh automatisch beim echten Tripleheat-Rennende
+   prüfen — Dateien in `/home/data/tripleheat/{TIMESTAMP}/raw/`? ELO wächst?
+2. **Phase 4:** Steam OpenID-Login (tsura2)
