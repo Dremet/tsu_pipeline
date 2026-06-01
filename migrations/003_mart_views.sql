@@ -41,7 +41,9 @@ SELECT
         eb.elo_value
     ) AS current_elo,
     -- Human participant count per session (bots excluded by WHERE is_ai=false)
-    COUNT(*) OVER (PARTITION BY rs.id) AS human_participant_count
+    COUNT(*) OVER (PARTITION BY rs.id) AS human_participant_count,
+    -- Fastest lap driven by this driver in the race (NULL for historical records)
+    rp.fastest_lap
 FROM base.race_participations rp
 JOIN base.race_sessions rs    ON rp.session_id = rs.id
 JOIN base.tracks t            ON rs.track_guid = t.guid
@@ -306,6 +308,21 @@ hotlap_stats AS (
     FROM base.hotlap_laps hl
     JOIN base.hotlap_events he ON he.id = hl.event_id
     GROUP BY hl.steam_id
+),
+hotlap_top5_stats AS (
+    -- Count grouped hotlap sessions where the driver finished in top 5.
+    -- Uses the same group-by logic as v_hotlap_group_results.
+    SELECT steam_id, COUNT(*) AS hotlap_top5
+    FROM (
+        SELECT
+            group_id,
+            steam_id,
+            RANK() OVER (PARTITION BY group_id ORDER BY MIN(lap_time)) AS rnk
+        FROM mart.v_hotlap_group_results
+        GROUP BY group_id, steam_id
+    ) sub
+    WHERE rnk <= 5
+    GROUP BY steam_id
 )
 SELECT
     d.steam_id,
@@ -330,14 +347,17 @@ SELECT
     hls.hotlap_last_session_at,
     -- ELO delta and trend from live elo_history (NULL until first live Tripleheat race)
     el.heat_elo_delta,
-    et.heat_elo_trend_6
+    et.heat_elo_trend_6,
+    -- Hotlap top-5 finishes (track-independent; count of grouped sessions with rank ≤ 5)
+    COALESCE(ht5.hotlap_top5, 0) AS hotlap_top5
 FROM base.drivers d
 LEFT JOIN elo_current   ec  ON ec.steam_id  = d.steam_id
 LEFT JOIN elo_last      el  ON el.steam_id  = d.steam_id
 LEFT JOIN elo_trend     et  ON et.steam_id  = d.steam_id
 LEFT JOIN heat_stats    hs  ON hs.steam_id  = d.steam_id
 LEFT JOIN event_stats   es  ON es.steam_id  = d.steam_id
-LEFT JOIN hotlap_stats  hls ON hls.steam_id = d.steam_id;
+LEFT JOIN hotlap_stats      hls ON hls.steam_id = d.steam_id
+LEFT JOIN hotlap_top5_stats ht5 ON ht5.steam_id = d.steam_id;
 
 
 -- ── Grants ───────────────────────────────────────────────────────────────────

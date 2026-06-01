@@ -205,13 +205,16 @@ def _load_race(data: dict, server: str, conn) -> dict:
             else make_participation_id(sid, steam_id, player["vehicle"]["guid"])
         )
 
+        laps_data = [] if is_ai else _extract_lap_data(data, i)
+        fastest_lap = min(lap["lap_time"] for lap in laps_data) if laps_data else None
+
         conn.execute(
             """
             INSERT INTO base.race_participations
                 (id, session_id, steam_id, is_ai, bot_name, vehicle_guid,
                  finish_time, laps_completed, last_checkpoint, position,
-                 start_position)
-            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                 start_position, fastest_lap)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
             ON CONFLICT (id) DO NOTHING
             """,
             (
@@ -226,6 +229,7 @@ def _load_race(data: dict, server: str, conn) -> dict:
                 rr.get("lastCheckpoint"),
                 position_map.get(i),
                 player.get("startPosition"),
+                fastest_lap,
             ),
         )
         if conn.rowcount == 1:
