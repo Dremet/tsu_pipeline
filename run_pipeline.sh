@@ -68,6 +68,12 @@ echo "[$(timestamp)] *** Pipeline gestartet ***"
 # Datentypen verarbeiten
 ###############################################################################
 for TYPE in hotlapping events heats tripleheat; do
+  # /home/data/heats/ enthält Casual-Heat-Daten; Server-Label im DB ist 'casual_heat'
+  case "$TYPE" in
+    heats) SERVER="casual_heat" ;;
+    *)     SERVER="$TYPE" ;;
+  esac
+
   BASE_DIR="/home/data/${TYPE}"
   ARCHIVE_DIR="${BASE_DIR}/archive"
   mkdir -p "${ARCHIVE_DIR}"
@@ -80,11 +86,11 @@ for TYPE in hotlapping events heats tripleheat; do
     RAW_PATH="${SUBDIR}/raw"
     [ ! -d "$RAW_PATH" ] && continue
 
-    echo "[$(timestamp)] Verarbeite: ${TYPE}/${BN}"
+    echo "[$(timestamp)] Verarbeite: ${TYPE}/${BN} (server=${SERVER})"
 
-    # tsu_pipeline: Laden + Validierung + ELO (für heats)
+    # tsu_pipeline: Laden + Validierung + ELO (für tripleheat)
     uv --project "${PIPELINE_DIR}" run python "${PIPELINE_DIR}/pipeline_run.py" \
-      "${TYPE}" "${RAW_PATH}"
+      "${SERVER}" "${RAW_PATH}"
 
     # Hotlapping: In-Game-Bestzeiten aktualisieren (nicht-fatal)
     if [ "${TYPE}" = "hotlapping" ]; then

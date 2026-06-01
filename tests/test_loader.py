@@ -67,7 +67,7 @@ def test_load_real_event_idempotent(conn):
 # ── real heat (Stopped_GivePoints) ────────────────────────────────────────────
 
 def test_load_real_heat(conn):
-    result = load_event(REAL_HEAT, "heats", conn)
+    result = load_event(REAL_HEAT, "tripleheat", conn)
     assert not result["skipped"]
     assert result["sessions"] == 1
 
@@ -159,8 +159,8 @@ def test_human_drivers_in_bot_races_have_no_cross_contamination(conn):
 # ── ELO integration ───────────────────────────────────────────────────────────
 
 def test_elo_not_for_bot_only_race(conn):
-    """Solo human (+ bot) server='heats' race → 0 opponents → no ELO entries."""
-    load_event(BOT_RACE_1, "heats", conn)
+    """Solo human (+ bot) server='tripleheat' race → 0 opponents → no ELO entries."""
+    load_event(BOT_RACE_1, "tripleheat", conn)
     conn.execute("SELECT id FROM base.race_sessions")
     session_ids = [row[0] for row in conn.fetchall()]
     inserted = update_elo(session_ids, conn)
@@ -172,15 +172,15 @@ def test_elo_events_server_never_gets_elo(conn):
     load_event(REAL_EVENT, "events", conn)
     conn.execute("SELECT id FROM base.race_sessions")
     session_ids = [row[0] for row in conn.fetchall()]
-    # Default server='heats' filter → events sessions produce no ELO
+    # Default server='tripleheat' filter → events sessions produce no ELO
     inserted = update_elo(session_ids, conn)
     assert inserted == 0, "Liga-Event sessions must never get ELO"
 
 
 def test_elo_two_human_heats_race(conn):
-    """Two humans in a server='heats' race must each get an ELO entry."""
-    load_event(HEAT_RACE_1, "heats", conn)
-    conn.execute("SELECT id FROM base.race_sessions WHERE server = 'heats'")
+    """Two humans in a server='tripleheat' race must each get an ELO entry."""
+    load_event(HEAT_RACE_1, "tripleheat", conn)
+    conn.execute("SELECT id FROM base.race_sessions WHERE server = 'tripleheat'")
     session_ids = [row[0] for row in conn.fetchall()]
     inserted = update_elo(session_ids, conn)
     assert inserted == 2, "Both human drivers must receive ELO entries"
@@ -195,10 +195,10 @@ def test_elo_chronological_multi_race(conn):
         → ELO delta for A and B differs from what it would be at equal starting values,
           because they now carry their Race 1 ELOs.
     """
-    load_event(HEAT_RACE_1, "heats", conn)
-    load_event(HEAT_RACE_2, "heats", conn)
+    load_event(HEAT_RACE_1, "tripleheat", conn)
+    load_event(HEAT_RACE_2, "tripleheat", conn)
 
-    conn.execute("SELECT id FROM base.race_sessions WHERE server = 'heats' ORDER BY utc_start_time")
+    conn.execute("SELECT id FROM base.race_sessions WHERE server = 'tripleheat' ORDER BY utc_start_time")
     session_ids = [row[0] for row in conn.fetchall()]
     assert len(session_ids) == 2
 
@@ -246,8 +246,8 @@ def test_elo_chronological_multi_race(conn):
 
 def test_elo_idempotent(conn):
     """Running update_elo twice on the same sessions must yield identical results."""
-    load_event(HEAT_RACE_1, "heats", conn)
-    conn.execute("SELECT id FROM base.race_sessions WHERE server = 'heats'")
+    load_event(HEAT_RACE_1, "tripleheat", conn)
+    conn.execute("SELECT id FROM base.race_sessions WHERE server = 'tripleheat'")
     session_ids = [row[0] for row in conn.fetchall()]
 
     inserted_first = update_elo(session_ids, conn)
@@ -270,7 +270,7 @@ def _insert_minimal_session(conn, session_id: str, utc_start_time, steam_ids: li
         """
         INSERT INTO base.race_sessions
             (id, utc_start_time, host, track_guid, server, finished_state, participant_count)
-        VALUES (%s, %s, 76561190000000001, %s, 'heats', 'Finished', %s)
+        VALUES (%s, %s, 76561190000000001, %s, 'tripleheat', 'Finished', %s)
         ON CONFLICT (id) DO NOTHING
         """,
         (session_id, utc_start_time, track_guid, len(steam_ids)),

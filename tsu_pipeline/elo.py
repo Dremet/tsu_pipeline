@@ -115,17 +115,13 @@ def _get_current_elo_map(conn, steam_ids: list[int]) -> dict:
     return {row[0]: row[1] for row in conn.fetchall()}
 
 
-def update_elo(session_ids: list[str], conn, *, server: str = "heats") -> int:
+def update_elo(session_ids: list[str], conn, *, server: str = "tripleheat") -> int:
     """
     Calculate and persist ELO for the given sessions.
 
-    ELO is computed ONLY for Tripleheat sessions (server='heats' by default).
-    NOTE: In the new system, server='heats' always means Tripleheat (not
-    Casual-Heat). The label is kept as 'heats' for historical continuity with
-    the old racing-DB; it will NOT be renamed when the Tripleheat server moves.
-
+    ELO is computed ONLY for Tripleheat sessions (server='tripleheat').
     Passing a different server is possible but should be deliberate — per
-    project design, Liga-Events do not receive ELO.
+    project design, Liga-Events and Casual-Heat do not receive ELO.
 
     Sessions are processed in ascending utc_start_time order.
     Already-calculated sessions (existing elo_history rows) are skipped.

@@ -53,8 +53,8 @@ def main() -> None:
             print(f"  ERROR: {f}", file=sys.stderr)
         sys.exit(1)
 
-    # ELO update for tripleheat (and legacy heats label) — idempotent, bootstrap cutoff prevents double-counting
-    if server in ("heats", "tripleheat") and result["sessions_new"] > 0:
+    # ELO update for tripleheat — idempotent, bootstrap cutoff (or -infinity) prevents double-counting
+    if server == "tripleheat" and result["sessions_new"] > 0:
         with psycopg.connect(db_url) as conn:
             cur = conn.cursor()
             cur.execute(

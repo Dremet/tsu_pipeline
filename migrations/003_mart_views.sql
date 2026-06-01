@@ -26,7 +26,7 @@ SELECT
     rp.finish_time,
     rp.laps_completed,
     rs.participant_count,
-    -- ELO (only populated for server='heats')
+    -- ELO (only populated for server='tripleheat')
     eh.elo_value,
     eh.elo_delta,
     -- Convenience: current ELO from history or bootstrap
@@ -230,7 +230,7 @@ WITH elo_current AS (
              FROM base.elo_history eh
              JOIN base.race_participations rp ON rp.id = eh.participation_id
              JOIN base.race_sessions rs ON rs.id = rp.session_id
-             WHERE rp.steam_id = d.steam_id AND rs.server = 'heats'
+             WHERE rp.steam_id = d.steam_id AND rs.server = 'tripleheat'
              ORDER BY rs.utc_start_time DESC
              LIMIT 1),
             eb.elo_value
@@ -252,7 +252,7 @@ elo_ranked AS (
     FROM base.elo_history eh
     JOIN base.race_participations rp ON rp.id = eh.participation_id
     JOIN base.race_sessions rs       ON rs.id = rp.session_id
-    WHERE rs.server = 'heats'
+    WHERE rs.server = 'tripleheat'
 ),
 elo_last AS (
     SELECT steam_id, elo_delta AS heat_elo_delta
@@ -277,7 +277,7 @@ heat_stats AS (
         MAX(rs.utc_start_time)            AS heat_last_race_at
     FROM base.race_participations rp
     JOIN base.race_sessions rs ON rs.id = rp.session_id
-    WHERE rs.server = 'heats'
+    WHERE rs.server = 'tripleheat'
       AND rp.is_ai = false
       AND rs.utc_start_time > COALESCE(
           (SELECT MAX(last_race_at) FROM base.elo_bootstrap),
