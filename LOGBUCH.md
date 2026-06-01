@@ -1420,3 +1420,91 @@ fastest_lap: NULL für historische Rennen → zeigt "—"
 
 Prod-Deployment ausstehend (s. Anleitung oben).
 ```
+
+---
+
+## Session 2026-06-01 Teil 4 (interaktiv mit André) — Aufräum-Session
+
+### Erledigt
+
+**Einmal-Skripte:**
+- `relabel_casual_heat.py` gelöscht (einmalig ausgeführt, nie wieder nötig)
+- `backfill_fastest_lap.py` gelöscht (einmalig ausgeführt, nie wieder nötig)
+- `recalc_elo.py` + `migrate_elo_history.py` + `e2e_validate.py`: behalten
+  (nützliche Werkzeuge für Rebuilds / Validierung)
+
+**heats→tripleheat-Reste bereinigt:**
+- `e2e_validate.py`: DATA_ROOTS, Queries, Prints auf 'tripleheat'/'casual_heat'
+- Docstrings: `loader.py`, `batch.py`, `pipeline_run.py` — 'heats' ersetzt
+
+**Doku-Update:**
+- `CLAUDE.md`: vollständig neu geschrieben (server-Labels, Datenpfade, Scripts,
+  OLD_RACING_POSTGRES_URL entfernt, WEBSITE_ANBINDUNG.md aus aktivem Index)
+- `OFFENE_ENTSCHEIDUNGEN.md` OE-2: korrigiert (sagt jetzt korrekt 'tripleheat')
+- `PROJECT_BRIEFING.md`: Roadmap (Phase 2+3 ✅), Verarbeitungsregeln, Stolpersteine
+
+**Toter Code / verwaiste Dateien:**
+- `elo_events.html` in tsura2 gelöscht (Route seit Phase 2 nicht mehr vorhanden)
+- `bestandsaufnahme/tsura2/` gelöscht (veralteter Clone, 50+ Commits hinter aktuellem)
+
+**Prod-DB aufgeräumt:**
+- 14 alte `base.*`-Tabellen gedroppt (dbt base-Layer-Überreste: checkpoint_results,
+  compounds, elo_events, elo_heats, events, fastest_lap_results, hotlapping,
+  lap_results, log_lap_results, participations, partiticipations, race_results,
+  sector_results, teams)
+- `DROP SCHEMA enriched CASCADE` + `DROP SCHEMA source CASCADE` (als postgres-User)
+- `base.elo_bootstrap` bleibt (wird noch als ELO-Fallback in mart.v_driver_profile
+  referenziert)
+
+### Offen — Repo-Ablösung (nächste Session, erst Entscheidung dann Löschen)
+
+**Punkt 0 — Pipeline-Eigenständigkeit verifizieren (Prio 1, Voraussetzung für alles):**
+
+Bisher nie explizit bestätigt: Läuft `run_pipeline.sh` + `pipeline_run.py` aus
+`tsu_pipeline` wirklich ohne Import/Referenz auf `/home/data/tsu_data`-Inhalte?
+Prüfen bevor tsu_data weg kann:
+
+```bash
+# Auf carrot als data-User:
+grep -r "tsu_data" /home/data/tsu_pipeline/
+# Erwartet: nur der Deployment-Pfad-Kommentar in run_pipeline.sh, kein Python-Import
+```
+
+Außerdem: Läuft `generate_autorun.py` (aus tsu_data, aufgerufen in run_pipeline.sh
+für hotlapping) noch, und wäre das ein Blocker für tsu_data-Abschaltung?
+
+**Welche Repos können WEG — mit Abhängigkeits-Check:**
+
+| Repo/Ordner | Vermutung | Zu prüfen |
+|-------------|-----------|-----------|
+| `tsu_data` | WEG — aber `generate_autorun.py` noch referenziert in run_pipeline.sh | Ist generate_autorun.py noch nötig? Was tut es? |
+| `tsu_dbt` | WEG — dbt-Pipeline komplett abgelöst | Gibt es noch Cronjobs die dbt aufrufen? |
+| `tsu_analyzer` | WEG — alter racing-Server abgeschaltet | Läuft noch ein Cron darauf? |
+| `tsura_website` | WEG — komplett durch tsura2 abgelöst | Läuft noch ein Service? |
+| `tsura_server_scripts` | BLEIBT — Live-Scripts unter tripleheat-User | — |
+
+Erst Abhängigkeits-Check auf carrot (Crons, laufende Services, Referenzen),
+dann Entscheidung, dann löschen — nicht raten.
+
+### Nächste Schritte (Prio-Reihenfolge)
+
+1. **Freitag-Test: Automatisches Verschieben beim echten Tripleheat-Rennende**
+   - Erscheint neuer Ordner in `/home/data/tripleheat/{TIMESTAMP}/raw/`?
+   - Erscheint in `pipeline.log` eine neue tripleheat-Verarbeitung?
+   - `SELECT COUNT(*) FROM base.elo_history;` → sollte nach erstem echten Rennen > 0
+
+2. **Repo-Ablösung (nächste Session)** — wie oben
+
+3. **Phase 4: Steam-Login** (nach Repo-Aufräumen)
+
+### Stand
+
+```
+git (tsu_pipeline): ff51a7a — gepusht ✓
+git (tsura2):       a6df47c — gepusht ✓
+
+Prod-DB:
+  base.*: nur noch die 9 neuen Tabellen + elo_bootstrap
+  enriched.* + source.*: gedroppt ✓
+  mart.*: 6 Views, alle aktiv ✓
+```
