@@ -98,7 +98,7 @@ for TYPE in hotlapping events heats tripleheat; do
         trap - ERR; set +e
         EVENT_FILE=$(find "${RAW_PATH}" -maxdepth 1 -name "*event.json" | head -n 1)
         if [ -f "$EVENT_FILE" ]; then
-          uv --project /home/data/tsu_data run python /home/data/tsu_data/generate_autorun.py \
+          uv --project "${PIPELINE_DIR}" run python "${PIPELINE_DIR}/generate_autorun.py" \
             "${EVENT_FILE}" --autorun-path /home/hotlapping/server/config/Scripts/autorun.src
           echo "[$(timestamp)]   generate_autorun: OK"
         fi
