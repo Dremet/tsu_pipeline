@@ -815,6 +815,43 @@ Website (tsura2):
 
 ---
 
+## Session 2026-06-01 Teil 2 (interaktiv mit André) — 3 Fixes
+
+### Testrennen entfernen (Fix 1)
+- session f31a164f... (Circuit Zolder, 31.05., 5 TN) komplett gelöscht
+  (elo_history 5 Einträge, participations 5, session 1)
+- Keine ELO-Neuberechnung nötig (Testrennen war chronologisch letztes)
+- Top-ELO danach: HENDRIK 1543.1, McVizn 1528.9, Dremet 1226.1 ✓
+
+### ELO-Chart-Diagnose + Fix (Fix 2)
+- **Ursache:** routes.py-Query nutzte `server='heats'` (Phase-A-Commit),
+  live-Code noch nicht deployed → 0 Rows → nur ein "Start"-Punkt, keine Linie
+- **Fix:** server='tripleheat' (bereits in Phase-A-Commit), jetzt 107 Punkte
+  für HENDRIK (Start:1000 + 106 Rennen)
+- **Verbesserung:** Chart zeigt jetzt festen Startpunkt ELO=1000, danach
+  volle ELO-Geschichte; Bootstrap-Fallback entfernt (nicht mehr nötig)
+
+### Startseite/Races-Umbau (Fix 3)
+- _last_day_summary() zu Modul-Ebene verschoben
+- `/`: Server-Übersicht (TripleHeat/Event/Casual-Heat, letzte Renntage)
+  mit "All races"-Link, dann Hotlap + Steam-Server
+- `/races`: nur noch volle Rennslist (≥4 TN), ohne Summary-Cards oben
+
+### Stand
+```
+git (tsura2): cc8f750 — gepusht ✓
+Prod-DB:
+  Testrennen f31a164f... vollständig entfernt
+  elo_history: 3666 Einträge (war 3671)
+  tripleheat sessions: 305 (war 306)
+```
+
+### Nächste Schritte
+1. Deployen (s. vorheriger Logbucheintrag)
+2. Freitag: move_raw_files.sh automatisch testen
+
+---
+
 ## Session 2026-05-31 — Teil 6 (interaktiv mit André) — Phase 2 abgeschlossen
 
 ### Was abgeschlossen wurde
