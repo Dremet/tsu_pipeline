@@ -1,20 +1,17 @@
 #!/usr/bin/env bash
 #
-# run_pipeline.sh — neue Pipeline auf Basis von tsu_pipeline
-#
-# Deployment-Pfad: /home/data/tsu_data/run_pipeline.sh
-# tsu_pipeline-Paket erwartet unter: /home/data/tsu_pipeline/
+# run_pipeline.sh — Pipeline läuft direkt aus /home/data/tsu_pipeline/
 #
 # Cron-Aufruf (data-User):
-#   * * * * *        cd /home/data/tsu_data && ./run_pipeline.sh
-#   * * * * * sleep 30; cd /home/data/tsu_data && ./run_pipeline.sh
+#   * * * * *        cd /home/data/tsu_pipeline && ./run_pipeline.sh
+#   * * * * * sleep 30; cd /home/data/tsu_pipeline && ./run_pipeline.sh
 #
 set -e
 set -o pipefail
 
 PIPELINE_DIR="/home/data/tsu_pipeline"
-LOGFILE="/home/data/tsu_data/pipeline.log"
-ERROR_FILE="/home/data/tsu_data/ERROR_OCCURED"
+LOGFILE="${PIPELINE_DIR}/pipeline.log"
+ERROR_FILE="${PIPELINE_DIR}/ERROR_OCCURED"
 MAXSIZE=10485760  # 10 MB
 
 timestamp() { date +"%Y-%m-%dT%H:%M:%S"; }
