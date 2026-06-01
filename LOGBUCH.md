@@ -726,6 +726,95 @@ Nach erstem echten Rennen: `SELECT COUNT(*) FROM base.elo_history;` → sollte >
 
 ---
 
+## Session 2026-06-01 (interaktiv mit André) — Umbenennung heats→tripleheat + ELO-Neuberechnung
+
+**Ziel:** Tripleheat-Rennen auf der Website sichtbar machen; saubere Trennung
+`server='tripleheat'` (Tripleheats) vs. `server='casual_heat'` (Casual-Heats).
+OE-1 Option B gleichzeitig umgesetzt (volle ELO-Historie statt Bootstrap).
+
+### Was gemacht wurde
+
+#### Befund
+Die 410 `server='heats'`-Sessions in der Prod-DB waren ein Mix aus:
+- 305 historischen Tripleheats (history_triple_heat_hammock)
+- 105 Casual-Heats (/home/data/heats/)
+
+Der neue Testlauf (server='tripleheat') war korrekt, aber Code + Views filterten
+noch auf `='heats'`, weshalb er nicht angezeigt wurde.
+
+#### Phase A — Code (tsu_pipeline + tsura2)
+- `run_pipeline.sh`: TYPE 'heats' → SERVER='casual_heat' (Directory bleibt /home/data/heats/)
+- `pipeline_run.py`: ELO-Bedingung `in ("heats","tripleheat")` → `== "tripleheat"`
+- `elo.py`: default `server='heats'` → `'tripleheat'`
+- `003_mart_views.sql`: alle 3 `server='heats'` → `'tripleheat'` (elo_current, elo_ranked, heat_stats)
+- `recalc_elo.py`: neues Einmal-Script für volle ELO-Neuberechnung
+- Tests: alle `'heats'` → `'tripleheat'` (22/27 grün, 5 pre-existing FileNotFoundError)
+- `tsura2/routes.py`: 4 Stellen (RACE_SERVERS, summary, races filter, ELO-chart)
+- `tsura2/templates`: 6 Stellen in races.html, race_detail.html, driver.html
+
+#### Phase B — DB-Migration (Prod)
+1. elo_history für heats+tripleheat gelöscht (5 Einträge)
+2. elo_bootstrap TRUNCATED (OE-1 Option B, 120 Einträge → 0)
+3. heats-Sessions + Participations gelöscht (410 Sessions, 4618 Participations)
+4. history_triple_heat_hammock neu geladen als 'tripleheat': 305 Sessions, 3669 Teilnahmen
+5. /home/data/heats/ neu geladen als 'casual_heat': 105 Sessions, 949 Teilnahmen
+6. ELO-Neuberechnung: 3671 neue elo_history-Einträge für 306 Tripleheat-Sessions
+
+Plausibilitäts-Check (bootstrap vs. neu):
+
+| Fahrer | Bootstrap | Neu | Δ |
+|--------|-----------|-----|---|
+| HENDRIK | 1545.4 | 1543.1 | -2.3 |
+| McVizn | 1530.0 | 1530.9 | +0.9 |
+| Dremet | 1224.3 | 1228.8 | +4.5 |
+| Jormeli | 1276.8 | 1286.8 | +10.0 |
+
+Max-Abweichung ±10 Punkte — erwartet (alte Formel hatte break-Bug).
+
+#### Phase C — Deploy
+- tsu_pipeline gepusht: github.com/Dremet/tsu_pipeline (56eff91)
+- tsura2 gepusht: github.com/Dremet/tsura2 (28f8a13)
+- 003_mart_views.sql auf Prod deployed (CREATE OR REPLACE)
+- tsura2: Deploy-Befehl für André (s. Nächste Schritte)
+
+### Stand
+
+```
+git (tsu_pipeline): 56eff91 — gepusht ✓
+git (tsura2):       28f8a13 — gepusht ✓
+
+Produktiv-DB:
+  base.race_sessions:    306 tripleheat + 105 casual_heat + 739 events + 970 hotlapping
+  base.elo_history:      3671 (volle Geschichte, Delta+Trend gefüllt)
+  base.elo_bootstrap:    0 (OE-1 Option B umgesetzt)
+  mart.v_race_results:   3674 tripleheat-Zeilen sichtbar
+  mart.v_driver_profile: heat_elo_delta + heat_elo_trend_6 gefüllt
+
+Pipeline:
+  run_pipeline.sh: heats-Dir → 'casual_heat', tripleheat-Dir → 'tripleheat'
+  ELO: nur server='tripleheat' (Casual-Heat nie)
+
+Website (tsura2):
+  Noch nicht deployed — wartet auf 'git pull + service restart' durch André
+```
+
+### Nächste Schritte
+
+1. **tsura2 deployen** (als tsura-User auf carrot):
+   ```bash
+   cd /home/tsura/tsura2 && git pull
+   sudo systemctl --machine=tsura@ --user restart dev_tsura.service
+   ```
+2. **tsu_pipeline deployen** (als data-User auf carrot):
+   ```bash
+   cd /home/data/tsu_pipeline && git pull && uv sync
+   cp /home/data/tsu_pipeline/run_pipeline.sh /home/data/tsu_data/run_pipeline.sh
+   chmod +x /home/data/tsu_data/run_pipeline.sh
+   ```
+3. **Punkt 2 (Freitag): move_raw_files.sh automatisch testen** — nächste Session
+
+---
+
 ## Session 2026-05-31 — Teil 6 (interaktiv mit André) — Phase 2 abgeschlossen
 
 ### Was abgeschlossen wurde
@@ -1086,8 +1175,7 @@ Das ist der Teil, der **Freitag automatisch laufen muss**.
 
 #### 3. Globale Umbenennung heats→tripleheat/casual_heat (Prio 3, nach 1+2)
 
-Schritt 2 (relabel_casual_heat.py auf Ordner-Basis) + Schritt 3 (Code-Umbenennung)
-aus dem LOGBUCH-Eintrag Teil 8 stehen noch aus. Erst angehen, wenn 1 und 2 stabil.
+✅ In Session 2026-06-01 Teil 11 abgeschlossen (s.u.).
 
 ### Infrastruktur-Notiz
 
@@ -1115,4 +1203,5 @@ Pipeline:
 
 Website (tsura2):
   tripleheat-Rennen noch nicht sichtbar — Punkt 1 oben
+  → In Session 2026-06-01 Teil 11 behoben (s.u.)
 ```
