@@ -1675,24 +1675,94 @@ sudo systemctl --machine=tsura@ --user restart dev_tsura.service
    in loader.py (eine Zeile)
 3. Phase 4: Steam OpenID-Login
 
-### Abschluss-Notiz — Offene Bugs in der Stint-Grafik (nächste Session Prio 1)
+### Abschluss-Notiz — Offene Bugs in der Stint-Grafik ✅ BEHOBEN (Session 2026-06-09 Teil 2)
 
-Telemetrie-Rohdaten (`race_lap_telemetry`) sind korrekt geladen. Zwei Anzeige-Bugs:
 
-**Bug 1 — Runden-Summe um 1 zu niedrig:**
-Die Summe aller Stint-Längen eines Fahrers ergibt eine Runde zu wenig verglichen
-mit `laps_completed`. Verdacht: Off-by-one beim `lap_end` des letzten Stints
-oder bei der `lap_start = MIN(lap_number) - 1`-Formel in `mart.v_tire_stints`.
-Prüfen: stimmt `MAX(lap_end)` über alle Stints eines Fahrers mit `laps_completed`
-aus `base.race_participations` überein?
+---
 
-**Bug 2 — Gesamtrennzeiten ~10 Sekunden zu hoch:**
-Die angezeigten Rennzeiten (Finish-Zeit) sind vermutlich um den Start-Offset zu
-groß. Die Details.log-Timestamps beginnen nicht bei 0, sondern bei einem Offset
-(erster Start-Event-Timestamp, z. B. 60000 ≙ 6 Sekunden). Dieser Offset muss
-von `finish_time` subtrahiert werden. Betrifft `routes.py` oder den Loader.
-Prüfen: Was ist der erste `Start`-Event-Timestamp in einer typischen Details.log,
-und wie wird `finish_time` in `base.race_participations` befüllt (aus dem JSON,
-nicht aus der Log — evtl. kein Bug in der Telemetrie, sondern eine andere Quelle)?
+## Session 2026-06-09 Teil 2 (interaktiv mit André) — Stint-Grafik Bugfixes
 
-Beide Bugs: keine Datenmigration nötig, nur Parser- oder View-Korrektur.
+### Ist-Werte vorher (Philip Island, session b4a329…, 48 Runden)
+
+**Bug 1 — Runden-Summe:**
+Alle Finisher: `SUM(lap_end - lap_start) = laps_completed - 1` (z.B. McVizn: 47 statt 48).
+DNF Oompa (41 Runden): diff=0 ✓ (DNFs haben ein Lap-Event auf der letzten Runde, Finisher nur ein Finished-Event).
+
+**Bug 2 — Rennzeit:**
+McVizn: DB `finish_time=3623.68s`, angezeigt 3623.68s. Erwartet: 3614.80s. Differenz: 8.88s.
+Start-Offset: 88800 Ticks = 8.88s (aus `Start`-Event im Log = `checkpointTimes[0].times[0]` im JSON).
+
+### Ursachen
+
+**Bug 1:** Das `Finished`-Event wird in `parse_details_log` nicht als `Lap`-Ereignis
+gespeichert (nur `[ev for ev in events if ev["type"] == "Lap"]`). Deshalb ist
+`MAX(lap_number)` in der View für den letzten Stint um 1 zu niedrig — die letzte
+Runde des Siegers fehlt in der Telemetrie-Tabelle.
+
+**Bug 2:** `rr["time"]` im JSON entspricht dem rohen Game-Clock-Tick beim Zieldurchgang,
+NICHT der Netto-Rennzeit. `checkpointTimes[0].times[0]` (= Startdurchgang) ist der
+Race-Start-Offset, der abgezogen werden muss. Der Offset variiert (7–27 s, je nach
+Vorbereitungszeit vor dem Rennen).
+
+### Was geändert wurde
+
+**Migration 006** (`tsu_pipeline/migrations/006_race_start_offset.sql`):
+```sql
+ALTER TABLE base.race_sessions ADD COLUMN IF NOT EXISTS race_start_offset_s FLOAT;
+```
+
+**`tsu_pipeline/tsu_pipeline/loader.py`:**
+Berechnet `race_start_offset_s = checkpointTimes[0].times[0] / 10000.0` beim Laden
+und speichert es in `base.race_sessions`.
+
+**`tsu_pipeline/migrations/003_mart_views.sql`:**
+- `v_tire_stints`: Umgebaut auf CTE. Letzter Stint: `lap_end = COALESCE(race_laps, lap_end_raw)`.
+  Frühere Stints: `lap_end = MAX(lap_number)`. `DROP VIEW IF EXISTS` vorangestellt
+  (Typ ändert sich von smallint auf integer).
+- `v_race_results`: `rp.finish_time - COALESCE(rs.race_start_offset_s, 0) AS finish_time`
+
+**`tsura2/migrations/005_login.sql`:**
+Gleiche `finish_time`-Korrektur in der `v_race_results`-Definition mit `display_tag`
+(die aktuell in Prod aktive Version).
+
+**`tsu_pipeline/backfill_start_offset.py`** (neu):
+Scannt alle JSON-Archive, berechnet den Offset aus `checkpointTimes[0]` und
+schreibt ihn in `base.race_sessions.race_start_offset_s` (idempotent, nur NULL-Rows).
+
+### Backfill-Ergebnis auf Prod
+
+```
+Updated:              1113 Sessions
+Already set:             8 (von Loader-Lauf während der Session)
+No checkpoint data:     90 (z.B. Hotlapping-JSONs ohne checkpointTimes)
+Session not in DB:     145 (Dateien, die nie geladen wurden)
+Errors:                  0
+```
+
+### Ist-Werte nachher (Philip Island)
+
+**Bug 1 — Stint-Summe:** Alle Fahrer `diff=0`. McVizn: `0->12 | 12->24 | 24->36 | 36->48` (48 Runden ✓).
+**Bug 2 — Rennzeit:** McVizn: `net_finish_time=3614.80s` (−8.88s, exakt der Start-Offset ✓).
+
+### Stand
+
+```
+git (tsu_pipeline): 4345fd3 — gepusht ✓
+git (tsura2):       8461c76 — gepusht ✓
+
+Prod-DB:
+  base.race_sessions.race_start_offset_s: 1113 Sessions gebackfilled
+  mart.v_tire_stints:  Bug 1 behoben (lap_end des letzten Stints = race_laps)
+  mart.v_race_results: Bug 2 behoben (finish_time - COALESCE(offset, 0))
+
+Tests: 37/42 grün (5 pre-existing FileNotFoundError)
+```
+
+### Nächste Schritte
+
+1. **Deploy tsura2** (tsura-User auf carrot):
+   ```bash
+   cd /home/tsura/tsura2 && git pull
+   sudo systemctl --machine=tsura@ --user restart dev_tsura.service
+   ```
+2. **Phase 4:** Steam OpenID-Login
