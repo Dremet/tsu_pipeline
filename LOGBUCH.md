@@ -1549,3 +1549,128 @@ Cron (data-User):    cd /home/data/tsu_pipeline && ./run_pipeline.sh (alle 30s)
 1. **Freitag-Test:** move_raw_files.sh automatisch beim echten Tripleheat-Rennende
    prüfen — Dateien in `/home/data/tripleheat/{TIMESTAMP}/raw/`? ELO wächst?
 2. **Phase 4:** Steam OpenID-Login (tsura2)
+
+---
+
+## Session 2026-06-09 (interaktiv mit André) — Tire-Telemetrie + Stint-Grafik
+
+### Was gebaut wurde
+
+**Domänenwissen portiert:** `plot_tire_stints.py` + `helpers.py` (parse_events,
+build_stints, find_best_lap_time) nach `tsu_pipeline/details_parser.py` portiert.
+- Komma-Dezimal-Normalisierung für alle Float-Felder (EU-Format-Robustheit)
+- Kein Pandas (plain Python)
+- best_lap_time × 0.75 Heuristik für "Pit vor/nach Start-Linie" exakt übernommen
+
+**Schema (Migration 005_tire_stints.sql):**
+- `base.race_tire_compounds` (session_id, compound_index PK, name, max_wear, max_performance)
+- `base.race_lap_telemetry` (id, participation_id, session_id, lap_number, compound_name,
+  tire_wear, fuel_remaining, hit_points, stint_number)
+- Granularität: **per Lap** (nicht per Stint) → future wear-/fuel-Kurven möglich
+  ohne Re-Parsing der .log Dateien
+
+**`mart.v_tire_stints`** (in 003_mart_views.sql ergänzt):
+- Aggregiert per (session, driver, stint): lap_start, lap_end, compound, wear_pct
+- lap_start = MIN(lap_number) - 1, lap_end = MAX(lap_number)
+- GRANT SELECT auf tsura
+
+**Pipeline-Integration (loader.py):**
+- `_find_log_path()`: leitet `*_event_details.log` aus `*_event.json` ab
+- `_load_details()`: idempotent via ON CONFLICT DO NOTHING
+- `_load_race()` ruft `_load_details` für `server='events'` automatisch auf
+- Tripleheat: Bedingung in `loader.py:_load_race` auf `server in ('events', 'tripleheat')`
+  erweitern wenn gewünscht
+
+**Tests:** 15 neue Tests in `test_details_parser.py`, alle grün. 37/42 gesamt (5 pre-existing).
+
+**Interaktive Stint-Grafik (race_detail.html):**
+- Inline SVG, Bootstrap-Dark-Theme
+- Farben: Soft=#ff6060, Medium=#ffd700, Hard=#e0e0e0
+- Lap-Count-Label (dunkel, center), Verschleiß-%-Label (rechts)
+- Native SVG `<title>`-Tooltips beim Hover
+- Nur sichtbar wenn v_tire_stints Daten für die Session hat
+- Mobile-ready: `overflow-x:auto` Container + `min-width`
+
+### Rückwirkende Last (Backfill)
+
+Bereits ausgeführt (idempotent wiederholbar):
+```bash
+# Als data-User (oder dremet) auf carrot:
+cd /home/data/tsu_pipeline
+source .env
+uv run python - <<'EOF'
+from tsu_pipeline.batch import load_folder
+import os
+from dotenv import load_dotenv
+load_dotenv()
+url = os.environ["TSU_PROD_POSTGRES_URL"]
+r = load_folder("/home/data/events/archive", "events", url)
+print(f"Total: {r['total']}, Loaded: {r['loaded']}, Errors: {r['errors']}")
+EOF
+```
+Ergebnis: 1117 Dateien, 898 geladen, 0 Fehler.
+29.667 Lap-Telemetrie-Zeilen, 867 Compound-Definitionen in Prod-DB.
+
+### Reichweite (welche Rennen haben die Stint-Grafik)
+
+| Server | Details.log-Dateien | Mit Reifendaten |
+|--------|---------------------|-----------------|
+| events (historisch) | 984 | 569 |
+| heats/casual_heat | 113 | ~109 |
+| tripleheat (neu) | 1 | 0 (keine Verbindungen) |
+| history_triple_heat_hammock | 0 | — |
+
+**~569 Event-Sessions** haben die Grafik. Tripleheat-Sessions und casual_heat NICHT
+(Telemetrie-Load nur für server='events' aktiviert, s. loader.py).
+Um tripleheat hinzuzufügen: `server == "events"` → `server in ("events", "tripleheat")`
+in `_load_race` in loader.py ändern.
+
+### Stand
+
+```
+git (tsu_pipeline): aec6a65 — gepusht ✓
+git (tsura2):       f9f24f6 — gepusht ✓
+
+Prod-DB:
+  base.race_tire_compounds: 867 Zeilen
+  base.race_lap_telemetry:  29.667 Zeilen
+  mart.v_tire_stints:       existiert, GRANTed an tsura ✓
+
+Tests: 37/42 grün (5 pre-existing FileNotFoundError)
+Lokal getestet: race_detail 200 mit 86 Stints-Bars ✓
+                tripleheat-Race ohne Reifendaten: kein SVG (korrekt) ✓
+```
+
+### Deploy-Befehle (Prod)
+
+**Schema + Views** (data-User, carrot) — bereits lokal angewendet:
+```bash
+cd /home/data/tsu_pipeline && git pull
+psql "postgresql://data:REDACTED@localhost:5432/tsu" -f migrations/005_tire_stints.sql
+psql "postgresql://data:REDACTED@localhost:5432/tsu" -f migrations/003_mart_views.sql
+```
+(003 zeigt FEHLER für v_race_results/v_driver_profile falls 005_login.sql der tsura2
+schon drauf ist — das ist harmlos, v_tire_stints wird trotzdem erstellt)
+
+**Backfill** (data-User, carrot) — bereits lokal ausgeführt, auf carrot wiederholen:
+```bash
+cd /home/data/tsu_pipeline && source .env
+uv run python -c "
+from tsu_pipeline.batch import load_folder; import os; from dotenv import load_dotenv; load_dotenv()
+r = load_folder('/home/data/events/archive', 'events', os.environ['TSU_PROD_POSTGRES_URL'])
+print(r)
+"
+```
+
+**tsura2** (tsura-User, carrot):
+```bash
+cd /home/tsura/tsura2 && git pull
+sudo systemctl --machine=tsura@ --user restart dev_tsura.service
+```
+
+### Nächste Schritte
+
+1. Deploy auf carrot (s. Befehle oben)
+2. Tripleheat-Telemetrie aktivieren: `server == "events"` → `server in ("events", "tripleheat")`
+   in loader.py (eine Zeile)
+3. Phase 4: Steam OpenID-Login
