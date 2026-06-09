@@ -1674,3 +1674,25 @@ sudo systemctl --machine=tsura@ --user restart dev_tsura.service
 2. Tripleheat-Telemetrie aktivieren: `server == "events"` → `server in ("events", "tripleheat")`
    in loader.py (eine Zeile)
 3. Phase 4: Steam OpenID-Login
+
+### Abschluss-Notiz — Offene Bugs in der Stint-Grafik (nächste Session Prio 1)
+
+Telemetrie-Rohdaten (`race_lap_telemetry`) sind korrekt geladen. Zwei Anzeige-Bugs:
+
+**Bug 1 — Runden-Summe um 1 zu niedrig:**
+Die Summe aller Stint-Längen eines Fahrers ergibt eine Runde zu wenig verglichen
+mit `laps_completed`. Verdacht: Off-by-one beim `lap_end` des letzten Stints
+oder bei der `lap_start = MIN(lap_number) - 1`-Formel in `mart.v_tire_stints`.
+Prüfen: stimmt `MAX(lap_end)` über alle Stints eines Fahrers mit `laps_completed`
+aus `base.race_participations` überein?
+
+**Bug 2 — Gesamtrennzeiten ~10 Sekunden zu hoch:**
+Die angezeigten Rennzeiten (Finish-Zeit) sind vermutlich um den Start-Offset zu
+groß. Die Details.log-Timestamps beginnen nicht bei 0, sondern bei einem Offset
+(erster Start-Event-Timestamp, z. B. 60000 ≙ 6 Sekunden). Dieser Offset muss
+von `finish_time` subtrahiert werden. Betrifft `routes.py` oder den Loader.
+Prüfen: Was ist der erste `Start`-Event-Timestamp in einer typischen Details.log,
+und wie wird `finish_time` in `base.race_participations` befüllt (aus dem JSON,
+nicht aus der Log — evtl. kein Bug in der Telemetrie, sondern eine andere Quelle)?
+
+Beide Bugs: keine Datenmigration nötig, nur Parser- oder View-Korrektur.
