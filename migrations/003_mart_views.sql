@@ -23,7 +23,7 @@ SELECT
     rp.vehicle_guid,
     v.name             AS vehicle_name,
     rp.position,
-    rp.finish_time,
+    rp.finish_time - COALESCE(rs.race_start_offset_s, 0) AS finish_time,
     rp.laps_completed,
     rs.participant_count,
     -- ELO (only populated for server='tripleheat')
@@ -366,31 +366,57 @@ LEFT JOIN hotlap_top5_stats ht5 ON ht5.steam_id = d.steam_id;
 -- Returns one row per (session, driver, stint); ordered by finish position.
 --
 -- lap_start = MIN(lap_number) - 1  (lap count at stint open: before first lap)
--- lap_end   = MAX(lap_number)      (last completed lap of stint)
+-- lap_end   = race_laps for the last stint (laps_completed is ground truth),
+--             MAX(lap_number) for earlier stints.
+-- Bug fix: the Finished event is not stored as a Lap telemetry row, so
+-- MAX(lap_number) for the final stint is 1 short; race_laps corrects this.
 -- wear_pct  = tire_wear_end / compound max_wear × 100
-
-CREATE OR REPLACE VIEW mart.v_tire_stints AS
+--
+-- DROP first because CREATE OR REPLACE cannot change column types
+-- (lap_end was smallint from MAX(lap_number); now integer via COALESCE with race_laps).
+DROP VIEW IF EXISTS mart.v_tire_stints;
+CREATE VIEW mart.v_tire_stints AS
+WITH raw AS (
+    SELECT
+        tl.session_id,
+        p.steam_id,
+        d.name                                              AS driver_name,
+        p.position                                          AS finish_position,
+        p.laps_completed                                    AS race_laps,
+        tl.stint_number,
+        tl.compound_name,
+        tc.max_wear,
+        MIN(tl.lap_number) - 1                              AS lap_start,
+        MAX(tl.lap_number)                                  AS lap_end_raw,
+        MAX(tl.tire_wear)                                   AS tire_wear_end,
+        ROUND((MAX(tl.tire_wear)::NUMERIC / NULLIF(tc.max_wear, 0) * 100), 1) AS wear_pct
+    FROM base.race_lap_telemetry tl
+    JOIN base.race_participations p  ON p.id = tl.participation_id
+    JOIN base.drivers d              ON d.steam_id = p.steam_id
+    JOIN base.race_tire_compounds tc
+        ON tc.session_id = tl.session_id AND tc.compound_name = tl.compound_name
+    WHERE p.is_ai = false
+    GROUP BY tl.session_id, p.steam_id, d.name, p.position,
+             p.laps_completed, tl.stint_number, tl.compound_name, tc.max_wear
+)
 SELECT
-    tl.session_id,
-    p.steam_id,
-    d.name                                              AS driver_name,
-    p.position                                          AS finish_position,
-    p.laps_completed                                    AS race_laps,
-    tl.stint_number,
-    tl.compound_name,
-    tc.max_wear,
-    MIN(tl.lap_number) - 1                              AS lap_start,
-    MAX(tl.lap_number)                                  AS lap_end,
-    MAX(tl.tire_wear)                                   AS tire_wear_end,
-    ROUND((MAX(tl.tire_wear)::NUMERIC / NULLIF(tc.max_wear, 0) * 100), 1) AS wear_pct
-FROM base.race_lap_telemetry tl
-JOIN base.race_participations p  ON p.id = tl.participation_id
-JOIN base.drivers d              ON d.steam_id = p.steam_id
-JOIN base.race_tire_compounds tc
-    ON tc.session_id = tl.session_id AND tc.compound_name = tl.compound_name
-WHERE p.is_ai = false
-GROUP BY tl.session_id, p.steam_id, d.name, p.position,
-         p.laps_completed, tl.stint_number, tl.compound_name, tc.max_wear;
+    session_id,
+    steam_id,
+    driver_name,
+    finish_position,
+    race_laps,
+    stint_number,
+    compound_name,
+    max_wear,
+    lap_start,
+    CASE
+        WHEN stint_number = MAX(stint_number) OVER (PARTITION BY session_id, steam_id)
+        THEN COALESCE(race_laps, lap_end_raw)
+        ELSE lap_end_raw
+    END                                                     AS lap_end,
+    tire_wear_end,
+    wear_pct
+FROM raw;
 
 
 -- ── Grants ───────────────────────────────────────────────────────────────────

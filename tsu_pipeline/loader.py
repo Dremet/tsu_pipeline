@@ -241,12 +241,27 @@ def _load_race(data: dict, server: str, conn, json_path: Path | None = None) -> 
     host = data["host"]
     sid = make_session_id(utc_start, host)
 
+    # Race start offset: the raw game-clock tick (in seconds) at the moment the
+    # race started.  checkpointTimes[0] is the starting S/F line crossing for
+    # each player — all players share the same value.  Subtracting this from
+    # finish_time yields the net race duration (Bug 2 fix).
+    race_start_offset_s: float | None = None
+    player_stats_list = data["raceStats"].get("playerStats", [])
+    for i, player in enumerate(data["players"]):
+        if player["player"]["ai"]:
+            continue
+        if i < len(player_stats_list):
+            ct = player_stats_list[i].get("checkpointTimes", [])
+            if ct and ct[0].get("times"):
+                race_start_offset_s = ct[0]["times"][0] / 10000.0
+                break
+
     conn.execute(
         """
         INSERT INTO base.race_sessions
             (id, utc_start_time, host, track_guid, server, finished_state,
-             max_laps, participant_count)
-        VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+             max_laps, participant_count, race_start_offset_s)
+        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
         ON CONFLICT (id) DO NOTHING
         """,
         (
@@ -258,6 +273,7 @@ def _load_race(data: dict, server: str, conn, json_path: Path | None = None) -> 
             data["finishedState"],
             data["raceStats"].get("maxLaps"),
             len(data["players"]),
+            race_start_offset_s,
         ),
     )
     session_inserted = conn.rowcount == 1
