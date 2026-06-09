@@ -360,6 +360,39 @@ LEFT JOIN hotlap_stats      hls ON hls.steam_id = d.steam_id
 LEFT JOIN hotlap_top5_stats ht5 ON ht5.steam_id = d.steam_id;
 
 
+-- ── v_tire_stints ────────────────────────────────────────────────────────────
+-- Tire stints aggregated from per-lap telemetry (base.race_lap_telemetry).
+-- Requires migration 005_tire_stints.sql (tables must exist first).
+-- Returns one row per (session, driver, stint); ordered by finish position.
+--
+-- lap_start = MIN(lap_number) - 1  (lap count at stint open: before first lap)
+-- lap_end   = MAX(lap_number)      (last completed lap of stint)
+-- wear_pct  = tire_wear_end / compound max_wear × 100
+
+CREATE OR REPLACE VIEW mart.v_tire_stints AS
+SELECT
+    tl.session_id,
+    p.steam_id,
+    d.name                                              AS driver_name,
+    p.position                                          AS finish_position,
+    p.laps_completed                                    AS race_laps,
+    tl.stint_number,
+    tl.compound_name,
+    tc.max_wear,
+    MIN(tl.lap_number) - 1                              AS lap_start,
+    MAX(tl.lap_number)                                  AS lap_end,
+    MAX(tl.tire_wear)                                   AS tire_wear_end,
+    ROUND((MAX(tl.tire_wear)::NUMERIC / NULLIF(tc.max_wear, 0) * 100), 1) AS wear_pct
+FROM base.race_lap_telemetry tl
+JOIN base.race_participations p  ON p.id = tl.participation_id
+JOIN base.drivers d              ON d.steam_id = p.steam_id
+JOIN base.race_tire_compounds tc
+    ON tc.session_id = tl.session_id AND tc.compound_name = tl.compound_name
+WHERE p.is_ai = false
+GROUP BY tl.session_id, p.steam_id, d.name, p.position,
+         p.laps_completed, tl.stint_number, tl.compound_name, tc.max_wear;
+
+
 -- ── Grants ───────────────────────────────────────────────────────────────────
 -- tsura (website read-only user) needs SELECT on all mart views.
 -- CREATE OR REPLACE VIEW preserves existing grants, but we re-grant idempotently.
@@ -370,3 +403,4 @@ GRANT SELECT ON mart.v_hotlap_sessions         TO tsura;
 GRANT SELECT ON mart.v_hotlap_grouped_sessions TO tsura;
 GRANT SELECT ON mart.v_hotlap_group_results    TO tsura;
 GRANT SELECT ON mart.v_driver_profile          TO tsura;
+GRANT SELECT ON mart.v_tire_stints             TO tsura;

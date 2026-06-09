@@ -21,12 +21,16 @@ DB_URL = os.environ["TSU_TEST_POSTGRES_URL"]
 _MIGRATIONS = [
     Path(__file__).parents[1] / "migrations" / "001_base_schema.sql",
     Path(__file__).parents[1] / "migrations" / "002_elo_bootstrap.sql",
+    Path(__file__).parents[1] / "migrations" / "004_fastest_lap.sql",
+    Path(__file__).parents[1] / "migrations" / "005_tire_stints.sql",
     Path(__file__).parents[1] / "migrations" / "003_mart_views.sql",
 ]
 
 _DATA_TABLES = [
     "base.elo_history",
     "base.elo_bootstrap",
+    "base.race_lap_telemetry",
+    "base.race_tire_compounds",
     "base.hotlap_laps",
     "base.hotlap_events",
     "base.race_participations",

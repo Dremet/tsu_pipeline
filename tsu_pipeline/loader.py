@@ -25,8 +25,87 @@ from .keys import (
     hotlap_event_id as make_hotlap_event_id,
     participation_id as make_participation_id,
     bot_participation_id as make_bot_participation_id,
+    lap_telemetry_id as make_lap_telemetry_id,
 )
 from .validate import validate_event, player_has_valid_laps
+
+
+# ── details.log helpers ──────────────────────────────────────────────────────
+
+def _find_log_path(json_path: Path) -> Path | None:
+    """Return the *_event_details.log sibling for a given *_event.json, or None."""
+    if json_path.name.endswith("_event.json"):
+        log_name = json_path.name[: -len("_event.json")] + "_event_details.log"
+        log_path = json_path.parent / log_name
+        if log_path.exists():
+            return log_path
+    return None
+
+
+def _load_details(
+    log_path: Path,
+    session_id: str,
+    player_map: dict[int, str],
+    conn,
+) -> dict:
+    """
+    Parse log_path and insert tire compounds + per-lap telemetry into the DB.
+    Idempotent (ON CONFLICT DO NOTHING).
+
+    player_map : player_index (from details.log) → participation_id
+    Returns    : {"compounds": int, "laps": int} new rows inserted.
+    """
+    from .details_parser import parse_details_log
+
+    parsed = parse_details_log(log_path)
+    if parsed is None:
+        return {"compounds": 0, "laps": 0}
+
+    compounds_inserted = 0
+    for idx, c in parsed["compounds"].items():
+        conn.execute(
+            """
+            INSERT INTO base.race_tire_compounds
+                (session_id, compound_index, compound_name, max_wear, max_performance)
+            VALUES (%s, %s, %s, %s, %s)
+            ON CONFLICT (session_id, compound_index) DO NOTHING
+            """,
+            (session_id, idx, c["name"], c["max_wear"], c["max_perf"]),
+        )
+        if conn.rowcount == 1:
+            compounds_inserted += 1
+
+    laps_inserted = 0
+    for row in parsed["lap_telemetry"]:
+        pid = player_map.get(row["player_index"])
+        if pid is None:
+            continue  # bot or unknown
+        compound_name = parsed["compounds"].get(row["compound_index"], {}).get("name", "Unknown")
+        tel_id = make_lap_telemetry_id(pid, row["lap_number"])
+        conn.execute(
+            """
+            INSERT INTO base.race_lap_telemetry
+                (id, participation_id, session_id, lap_number, compound_name,
+                 tire_wear, fuel_remaining, hit_points, stint_number)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
+            ON CONFLICT (id) DO NOTHING
+            """,
+            (
+                tel_id,
+                pid,
+                session_id,
+                row["lap_number"],
+                compound_name,
+                row["tire_wear"],
+                row["fuel_remaining"],
+                row["hit_points"],
+                row["stint_number"],
+            ),
+        )
+        if conn.rowcount == 1:
+            laps_inserted += 1
+
+    return {"compounds": compounds_inserted, "laps": laps_inserted}
 
 
 # ── helpers ──────────────────────────────────────────────────────────────────
@@ -148,7 +227,7 @@ def _upsert_driver(conn, player: dict) -> bool:
 
 # ── race loader ───────────────────────────────────────────────────────────────
 
-def _load_race(data: dict, server: str, conn) -> dict:
+def _load_race(data: dict, server: str, conn, json_path: Path | None = None) -> dict:
     _upsert_track(conn, data)
 
     drivers_new = 0
@@ -193,6 +272,8 @@ def _load_race(data: dict, server: str, conn) -> dict:
     rr_by_idx = {e["playerIndex"]: e for e in rr_entries}
 
     participations_inserted = 0
+    player_map: dict[int, str] = {}  # player_index → participation_id (humans only)
+
     for i, player in enumerate(data["players"]):
         _upsert_vehicle(conn, player["vehicle"])
         rr = rr_by_idx.get(i, {})
@@ -204,6 +285,9 @@ def _load_race(data: dict, server: str, conn) -> dict:
             if is_ai
             else make_participation_id(sid, steam_id, player["vehicle"]["guid"])
         )
+
+        if not is_ai:
+            player_map[i] = pid
 
         laps_data = [] if is_ai else _extract_lap_data(data, i)
         fastest_lap = min(lap["lap_time"] for lap in laps_data) if laps_data else None
@@ -234,6 +318,13 @@ def _load_race(data: dict, server: str, conn) -> dict:
         )
         if conn.rowcount == 1:
             participations_inserted += 1
+
+    # Load tire telemetry from accompanying details.log when available.
+    # Currently scoped to server='events'; extend to 'tripleheat' here when ready.
+    if json_path is not None and server == "events":
+        log_path = _find_log_path(json_path)
+        if log_path is not None:
+            _load_details(log_path, sid, player_map, conn)
 
     return {
         "skipped": False,
@@ -380,4 +471,4 @@ def load_event(json_path: str | Path, server: str, conn) -> dict:
     if is_hotlapping:
         return _load_hotlap(data, server, conn)
     else:
-        return _load_race(data, server, conn)
+        return _load_race(data, server, conn, json_path=Path(json_path))

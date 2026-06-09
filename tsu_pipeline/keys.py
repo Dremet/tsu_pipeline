@@ -20,3 +20,7 @@ def participation_id(session_id: str, steam_id: int, vehicle_guid: str) -> str:
 def bot_participation_id(session_id: str, player_array_index: int) -> str:
     """Stable key for a bot within a session: session + position in players array."""
     return _md5(session_id, "bot", str(player_array_index))
+
+
+def lap_telemetry_id(participation_id: str, lap_number: int) -> str:
+    return _md5(participation_id, str(lap_number))
