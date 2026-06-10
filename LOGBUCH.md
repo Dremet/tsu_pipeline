@@ -1826,3 +1826,65 @@ sudo systemctl --machine=tsura@ --user restart dev_tsura.service
 ```
 
 Reihenfolge wichtig: View VOR Restart (Route selektiert die neue Spalte).
+
+---
+
+## Session 2026-06-10 Teil 2 (autonom) — Tripleheat-Telemetrie aktiviert + Tests repariert
+
+### Befund: Warum Tripleheat-Rennen keine Stint-Grafik hatten
+
+Zwei Ursachen, beide behoben:
+1. **Server schreibt gar kein Log:** `generateDetailsLog: false` in der
+   Tripleheat-`game.json` (Events-Server: `true`). Deshalb existiert für kein
+   echtes Tripleheat-Rennen eine `*_event_details.log` — das move-Script würde
+   sie korrekt mitnehmen, sie ist nur nie da.
+2. **Loader lädt nur für events:** `loader.py` rief `_load_details` nur bei
+   `server == "events"` auf (war als TODO-Kommentar markiert).
+
+Kein Backfill nötig/möglich: Es gibt keine historischen Tripleheat-Logs mit
+Reifendaten. Das Feature greift ab dem ersten Rennen nach dem Deploy.
+
+### Änderungen
+
+**tsu_pipeline (4ff2cac):**
+- `loader.py`: Telemetrie-Load für `server in ("events", "tripleheat")`
+- 2 neue Tests: tripleheat lädt Telemetrie aus details.log, casual_heat
+  ignoriert sie strukturell
+- Pfad-Fix der 5 seit langem fehlschlagenden Tests (Echtdaten waren nach
+  `archive/` gewandert) → **Suite erstmals wieder komplett grün: 44/44**
+
+**tsura_server_scripts (49bfe9a):**
+- `tripleheat/server/config/game.json`: `generateDetailsLog: false → true`
+- Hinweis: André hat zwischenzeitlich die Repo-Struktur geändert
+  (`heat/` → `casualheat/`, neues `tripleheat/`); Commit per Rebase korrekt
+  auf `tripleheat/` gelandet. `casualheat` bleibt bewusst auf `false`.
+
+### Stand
+
+```
+git (tsu_pipeline):         4ff2cac — gepusht ✓, Tests 44/44 grün
+git (tsura_server_scripts): 49bfe9a — gepusht ✓
+Live noch NICHT deployed (s. Deploy unten)
+```
+
+### Deploy (André, auf carrot)
+
+```bash
+# 1. Pipeline (data-User) — Cron läuft direkt aus dem Repo, pull genügt:
+cd /home/data/tsu_pipeline && git pull
+
+# 2. Tripleheat-Server-Config (tripleheat-User):
+#    generateDetailsLog in der LIVE-game.json auf true setzen —
+#    Wert aus dem Repo übernehmen oder direkt editieren:
+grep -n generateDetailsLog /home/tripleheat/server/config/game.json
+# … "generateDetailsLog": true setzen (commands-Block)
+
+# 3. Tripleheat-Server neu starten (liest game.json beim Start),
+#    am besten außerhalb eines Renntags.
+```
+
+**Verifikation nach dem nächsten Tripleheat-Rennen:**
+- `/home/data/tripleheat/{TIMESTAMP}/raw/*_event_details.log` vorhanden?
+- `SELECT COUNT(*) FROM base.race_lap_telemetry t JOIN base.race_sessions s
+   ON s.id=t.session_id WHERE s.server='tripleheat';` → > 0
+- Race-Detail-Seite des Rennens zeigt die Tire-Stints-Grafik.
