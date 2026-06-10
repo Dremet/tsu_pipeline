@@ -15,7 +15,7 @@ from tsu_pipeline.elo import update_elo
 FIXTURES = Path(__file__).parent / "fixtures"
 
 REAL_EVENT = Path(
-    "/home/data/events/20250911_205039/raw/"
+    "/home/data/events/archive/20250911_205039/raw/"
     "20250911_205039_NewHampshireMotorSpeedwayv1_event.json"
 )
 HEAT_RACE_1 = FIXTURES / "heat_race_1.json"
@@ -25,7 +25,7 @@ REAL_HOTLAP = Path(
     "20251223_170021_OffTheRoad_event.json"
 )
 REAL_HEAT = Path(
-    "/home/data/heats/20260513_211653/raw/"
+    "/home/data/heats/archive/20260513_211653/raw/"
     "20260513_211653_JäädytettyIndeksi-ClubLayout_event.json"
 )
 BOT_RACE_1 = FIXTURES / "race_with_bots.json"
@@ -384,3 +384,54 @@ def test_elo_no_bootstrap_processes_all_sessions(conn):
     assert inserted == 2, (
         "Without bootstrap, all sessions should be processed (cutoff = -infinity)"
     )
+
+
+# ── tire telemetry gating by server ───────────────────────────────────────────
+
+_DETAILS_LOG = """\
+# Event details:
+FormatVersion 1
+EventType Circuit
+PlayerCount 2
+0 76561199000000001 0 DriverA
+1 76561199000000002 0 DriverB
+TireCompoundCount 2
+0 Soft 400000 1
+1 Medium 800000 0.88
+MaxFuel 50000
+
+Events
+10000 Start 0 0 50000 100 0 10000
+10000 Start 1 0 50000 100 0 10000
+610000 Lap 0 1 40000 80000 0 10000
+620000 Lap 1 1 40000 75000 0 10000
+1210000 Lap 0 2 30000 160000 0 10000
+1220000 Lap 1 2 30000 150000 0 10000
+1210000 Finished 0 2 0 160000 0 10000
+1220000 Finished 1 2 0 150000 0 10000
+"""
+
+
+def _race_with_details(tmp_path):
+    """Copy the heat_race_1 fixture + a matching details.log into tmp_path."""
+    json_path = tmp_path / "20990101_000000_TestTrack_event.json"
+    json_path.write_text(HEAT_RACE_1.read_text())
+    log_path = tmp_path / "20990101_000000_TestTrack_event_details.log"
+    log_path.write_text(_DETAILS_LOG)
+    return json_path
+
+
+def test_telemetry_loaded_for_tripleheat(conn, tmp_path):
+    """server='tripleheat' loads tire compounds + lap telemetry from details.log."""
+    result = load_event(_race_with_details(tmp_path), "tripleheat", conn)
+    assert not result["skipped"]
+    assert _count(conn, "base.race_tire_compounds") == 2
+    assert _count(conn, "base.race_lap_telemetry") > 0
+
+
+def test_telemetry_not_loaded_for_casual_heat(conn, tmp_path):
+    """server='casual_heat' ignores an existing details.log (no stint charts)."""
+    result = load_event(_race_with_details(tmp_path), "casual_heat", conn)
+    assert not result["skipped"]
+    assert _count(conn, "base.race_tire_compounds") == 0
+    assert _count(conn, "base.race_lap_telemetry") == 0

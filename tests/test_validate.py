@@ -12,15 +12,12 @@ from tsu_pipeline.validate import validate_event
 FIXTURES = Path(__file__).parent / "fixtures"
 
 # Real data paths
-REAL_HOTLAP = next(
-    (Path("/home/data/hotlapping/archive/20251223_170021/raw")
-     / "20251223_170021_OffTheRoad_event.json",)
-)[0] if False else Path(
+REAL_HOTLAP = Path(
     "/home/data/hotlapping/archive/20251223_170021/raw/20251223_170021_OffTheRoad_event.json"
 )
 
 REAL_HEAT = Path(
-    "/home/data/heats/20260513_211653/raw/"
+    "/home/data/heats/archive/20260513_211653/raw/"
     "20260513_211653_JäädytettyIndeksi-ClubLayout_event.json"
 )
 
