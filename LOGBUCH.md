@@ -1766,3 +1766,63 @@ Tests: 37/42 grün (5 pre-existing FileNotFoundError)
    sudo systemctl --machine=tsura@ --user restart dev_tsura.service
    ```
 2. **Phase 4:** Steam OpenID-Login
+
+---
+
+## Session 2026-06-10 (autonom) — Startposition auf der Race-Detail-Seite
+
+### Datenquellen-Analyse (vor dem Bauen)
+
+**1. Quelle:** `players[].startPosition` steht direkt in JEDER `*_event.json`
+(neben player/vehicle). Keine Quali-Ableitung, kein details.log-Parsing nötig.
+Mehr noch: `base.race_participations.start_position` existiert seit
+001_base_schema.sql und wird vom Loader seit jeher geschrieben — die Spalte
+ist in der Prod-DB zu 100 % gefüllt (alle 4 Server-Typen, 0 NULL). Einzige
+Lücke: `mart.v_race_results` reichte sie nicht durch.
+
+**2. Tripleheat:** Unkritisch. Jedes der 3 Rennen eines Abends hat seine
+eigene, saubere Startaufstellung im jeweiligen JSON (am Abend 2026-06-05
+verifiziert: 3 Rennen, jeweils vollständiges, plausibles Grid). Die
+Verkettung "Grid aus Vorrennen" erledigt das Spiel — wir lesen nur das Ergebnis.
+
+**3. Reichweite:** ALLE Race-Dateien in allen Beständen haben startPosition
+für alle Teilnehmer (events 758/758, tripleheat 4/4, history 305/305,
+casual_heat 121/121). Fehlende Werte (theoretisch künftig) → Spalte zeigt "—",
+kein Badge, kein Fehler (getestet mit synthetischem NULL in Test-DB).
+
+### Was gebaut wurde (nur tsura2, Pipeline unverändert)
+
+- `tsura2/migrations/006_start_position.sql`: `rp.start_position` ans Ende
+  von `mart.v_race_results` angehängt (REPLACE-safe nach display_tag aus 005).
+  Migrationskette: 003 (Pipeline) → 005_login → 006.
+- `routes.py` race_detail: `start_position` + `pos_diff = start - finish`.
+- `race_detail.html`: neue Spalte "Start"; hinter der Finish-Position Badge
+  `(+N)` grün / `(-N)` rot / `(±0)` neutral grau.
+
+### Test (lokal gegen Test-DB)
+
+Test-DB neu befüllt (history 305 + tripleheat 4 + events 898), Migrationen
+005+006 angewendet. Alle Routen 200; Badges stichprobengeprüft gegen Rohdaten;
+NULL-Fall geprüft.
+
+### Stand
+
+```
+git (tsura2): 6dfe3fc — gepusht ✓
+Prod-DB: Migration 006 NOCH NICHT angewendet (Deploy-Schritt André)
+```
+
+### Deploy (André, auf carrot)
+
+```bash
+# 1. View-Migration (data-User):
+cd /home/tsura/tsura2 && git pull   # als tsura-User, ODER Datei anders beziehen
+psql "postgresql://data:REDACTED@localhost:5432/tsu" \
+  -f /home/tsura/tsura2/migrations/006_start_position.sql
+# Erwartet: CREATE VIEW, GRANT
+
+# 2. Website neu starten:
+sudo systemctl --machine=tsura@ --user restart dev_tsura.service
+```
+
+Reihenfolge wichtig: View VOR Restart (Route selektiert die neue Spalte).
