@@ -64,7 +64,7 @@ echo "[$(timestamp)] *** Pipeline gestartet ***"
 ###############################################################################
 # Datentypen verarbeiten
 ###############################################################################
-for TYPE in hotlapping events heats tripleheat; do
+for TYPE in hotlapping events heats tripleheat career; do
   # /home/data/heats/ enthält Casual-Heat-Daten; Server-Label im DB ist 'casual_heat'
   case "$TYPE" in
     heats) SERVER="casual_heat" ;;

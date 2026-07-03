@@ -22,6 +22,7 @@ from pathlib import Path
 import psycopg
 
 from tsu_pipeline.batch import load_folder
+from tsu_pipeline.career import compute_career_rewards
 from tsu_pipeline.elo import update_elo
 
 
@@ -80,6 +81,28 @@ def main() -> None:
                 print(f"[pipeline] ELO: {inserted} new entries for {len(pending)} sessions")
             else:
                 print("[pipeline] ELO: no new sessions to process")
+
+    # Career rewards (credits + championship points) — no ELO. Idempotent.
+    if server == "career" and result["sessions_new"] > 0:
+        with psycopg.connect(db_url) as conn:
+            cur = conn.cursor()
+            cur.execute(
+                """
+                SELECT rs.id FROM base.race_sessions rs
+                WHERE rs.server = 'career'
+                  AND NOT EXISTS (
+                      SELECT 1 FROM career.race_rewards cr
+                      WHERE cr.session_id = rs.id
+                  )
+                ORDER BY rs.utc_start_time
+                """
+            )
+            pending = [row[0] for row in cur.fetchall()]
+            if pending:
+                n = compute_career_rewards(pending, cur)
+                print(f"[pipeline] career: {n} rewards for {len(pending)} sessions")
+            else:
+                print("[pipeline] career: no new sessions to process")
 
 
 if __name__ == "__main__":

@@ -24,9 +24,11 @@ _MIGRATIONS = [
     Path(__file__).parents[1] / "migrations" / "004_fastest_lap.sql",
     Path(__file__).parents[1] / "migrations" / "005_tire_stints.sql",
     Path(__file__).parents[1] / "migrations" / "003_mart_views.sql",
+    Path(__file__).parents[1] / "migrations" / "007_career.sql",
 ]
 
 _DATA_TABLES = [
+    "career.seasons",  # cascades to upgrade_axes/enrollments/driver_upgrades/race_rewards
     "base.elo_history",
     "base.elo_bootstrap",
     "base.race_lap_telemetry",
