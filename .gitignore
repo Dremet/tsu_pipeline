@@ -9,3 +9,7 @@ dist/
 .env
 .env.*
 !.env.example
+
+# Pipeline runtime artifacts (log/flag live in repo dir since dc92990)
+pipeline.log
+ERROR_OCCURED
