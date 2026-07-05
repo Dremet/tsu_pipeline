@@ -338,7 +338,7 @@ def _load_race(data: dict, server: str, conn, json_path: Path | None = None) -> 
     # Load tire telemetry from accompanying details.log when available.
     # Scoped to the servers that generate details logs (game.json:
     # commands.generateDetailsLog) and whose races are shown with stint charts.
-    if json_path is not None and server in ("events", "tripleheat"):
+    if json_path is not None and server in ("events", "tripleheat", "career", "casual_heat"):
         log_path = _find_log_path(json_path)
         if log_path is not None:
             _load_details(log_path, sid, player_map, conn)
