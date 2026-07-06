@@ -1888,3 +1888,26 @@ grep -n generateDetailsLog /home/tripleheat/server/config/game.json
 - `SELECT COUNT(*) FROM base.race_lap_telemetry t JOIN base.race_sessions s
    ON s.id=t.session_id WHERE s.server='tripleheat';` → > 0
 - Race-Detail-Seite des Rennens zeigt die Tire-Stints-Grafik.
+
+---
+
+## Session 2026-07-06 Teil 2 — Career Website-Politur, Build-&-Assign-Button, Credit-Recompute
+
+### Website-UI (tsura2, master)
+- Sortierbare Tabellen global (base.html); Aktionsspalten (*Details*/*View*) mit `data-nosort` ausgenommen; unsortiert kein Icon mehr (nur „Click to sort"-Tooltip).
+- Upgrade-Übersicht: **feldrelative Grades** statt T#/Werte — S(lila)=maxed, A=Feldführer, B–E nach Feldstärke, F=Stock (`_field_grade`, Werte verborgen). **Spent**-Spalte, Fahrer nach Spent sortiert. Grade-Spalten sortieren per numerischem `data-sort` (S=6…F=0).
+- Standings: Penalty-Spalte sortierbar + **Penalty-Log** (wann/wer/Punkte/warum).
+- Upgrade-Deadline-Countdown (Mo 20:55 CEST) groß in Garage + auf Career-Home (globaler `.js-deadline`-Handler); Icon gelb.
+- Races-Filter-Overlap gefixt (btn-group → flex); Anzeige **Triple Heat**/**Casual Heat** (Keys unverändert); Startseiten-Server-Karten färben den **Card-Header** selbst (kein Badge), Spalten via `table-layout:fixed` fluchtend.
+
+### Admin: Build & Assign Car (Migration 013)
+- `career.car_build_requests`-Queue (tsura INSERT/SELECT, career_ro SELECT/UPDATE). Button auf `/career/admin` enqueued; career-Cron `process_build_requests.py` (jede Minute) baut das eine Auto, aktualisiert `assignments.json`, forced live via autorun.src, markiert done/error. Mid-session sicher.
+
+### Credits Alpha Season geändert
+- `credit_first=200` (P1), `credit_last=600` (Letzter). **Recompute** der bestehenden `race_rewards` via `career.compute_career_rewards(session_ids)` als `data` — Guthaben/Backfill folgen über die Views. Merke: Season-Credit-Änderungen sind NICHT retroaktiv ohne Recompute.
+
+### Doku
+- `tsura_server_scripts/career/OPERATIONS.md` §4/§6/§7/§8/§9 erweitert (Recompute-Regel, literal-`\uXXXX`-Gotcha, Admin-Aktionen, season-scoped vs global, UI-Notizen).
+
+### Migrationen (as postgres) — angewandt
+- `012_career_penalties.sql`, `013_career_build_requests.sql`.
