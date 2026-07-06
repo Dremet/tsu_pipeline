@@ -22,7 +22,8 @@ from pathlib import Path
 import psycopg
 
 from tsu_pipeline.batch import load_folder
-from tsu_pipeline.career import compute_career_rewards
+from tsu_pipeline.career import (compute_career_rewards,
+                                 evaluate_objectives)
 from tsu_pipeline.elo import update_elo
 
 
@@ -94,6 +95,13 @@ def main() -> None:
                       SELECT 1 FROM career.race_rewards cr
                       WHERE cr.session_id = rs.id
                   )
+                  -- skip phantom races (aborted/restarted, nobody lapped):
+                  -- they never get rewards, so they must not stay pending
+                  AND EXISTS (
+                      SELECT 1 FROM base.race_participations rp2
+                      WHERE rp2.session_id = rs.id AND rp2.is_ai = false
+                        AND rp2.laps_completed >= 1
+                  )
                 ORDER BY rs.utc_start_time
                 """
             )
@@ -101,6 +109,9 @@ def main() -> None:
             if pending:
                 n = compute_career_rewards(pending, cur)
                 print(f"[pipeline] career: {n} rewards for {len(pending)} sessions")
+                m = evaluate_objectives(pending, cur)
+                if m:
+                    print(f"[pipeline] career: {m} objectives re-evaluated")
             else:
                 print("[pipeline] career: no new sessions to process")
 
