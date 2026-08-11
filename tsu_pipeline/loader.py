@@ -305,7 +305,12 @@ def _load_race(data: dict, server: str, conn, json_path: Path | None = None) -> 
         if not is_ai:
             player_map[i] = pid
 
-        laps_data = [] if is_ai else _extract_lap_data(data, i)
+        # AI drivers get the same checkpoint data as humans, so their lap
+        # times are there for the taking. Skipping them left every bot on
+        # the topdown heat server without a best lap on the website.
+        # (player_map stays humans-only: it feeds the tyre telemetry from
+        # details.log, which topdown does not produce anyway.)
+        laps_data = _extract_lap_data(data, i)
         fastest_lap = min(lap["lap_time"] for lap in laps_data) if laps_data else None
 
         conn.execute(
