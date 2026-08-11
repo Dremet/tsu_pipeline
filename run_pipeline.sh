@@ -63,8 +63,11 @@ echo "[$(timestamp)] *** Pipeline gestartet ***"
 
 ###############################################################################
 # Datentypen verarbeiten
+#
+# topdown liefert nur Rennen — die Qualifyings laufen im Hotlapping-Modus und
+# werden schon serverseitig von move_raw_files.sh verworfen.
 ###############################################################################
-for TYPE in hotlapping events heats tripleheat career; do
+for TYPE in hotlapping events heats tripleheat career topdown; do
   # /home/data/heats/ enthält Casual-Heat-Daten; Server-Label im DB ist 'casual_heat'
   case "$TYPE" in
     heats) SERVER="casual_heat" ;;
