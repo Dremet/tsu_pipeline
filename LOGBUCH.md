@@ -1978,3 +1978,68 @@ einzeln. Laufen ohne DB (`--noconftest`).
 - **OE-6**: kostet ein Quali-DNF den „Completed Heat"? (angenommen: nein)
 - Loader-Anbindung (`loader.py` liest `_heat.json`/`_session.json`/Journal noch
   nicht), Mart-Views und Profilseite stehen aus.
+
+---
+
+## Session 2026-08-28 — Topdown-Statistik, Schritt 3: Loader-Anbindung
+
+Deploy von Schritt 1+2 steht weiterhin aus (Schreibzugriff auf Prod und sogar
+auf `tsu_test` war in der Session blockiert). Ablauf zum Nachholen:
+`big-brain/outputs/tsu/2026-08-26-topdown-statistik-deploy.md`.
+
+### Neu: `tsu_pipeline/topdown_loader.py`
+`load_topdown_extras()` wird aus `loader._load_race` heraus aufgerufen, aber nur
+für `server == 'topdown'` — analog zu `_load_details`. Es führt drei Quellen
+zusammen: `_heat.json` (welcher Heat/welche Runde), `_session.json` (die Punkte,
+Quali und Rennen getrennt) und das Journal des Controllers (wer war Teilnehmer).
+
+Nebenbei in `loader.py`: `participation_ids` (steam_id → participation_id), damit
+die Statuszeile auf die schon geschriebene Teilnahme zeigen kann.
+
+**Nichts darf hier werfen.** `run_pipeline.sh` schreibt bei Exit≠0
+`ERROR_OCCURED` und legt damit den Ingest **aller sieben Server** still, bis
+jemand die Datei von Hand löscht. Inkonsistenzen landen deshalb in
+`base.topdown_data_faults`, der Load läuft weiter.
+
+### Gegen den echten Bestand geprüft (164 Rennen, Fake-Verbindung)
+- **0 Abstürze**, 67 Heats, 714 Punktzeilen, 328 Event-Zeilen.
+- **1 Datenfehler**: die bekannte `round_disagreement` vom 31.07. Sonst nichts.
+- **135 von 135 Spieler-Heatsummen stimmen exakt** mit dem, was TSU im
+  Session-Ergebnis ausweist. Damit ist §8 über den kompletten Bestand belegt,
+  nicht nur pro Datei.
+
+### Der Idempotenz-Beweis fiel dabei ab
+Heat 78 fuhr Runde 1 zweimal (abgebrochen `Stopped_NoPoints`, dann echt). Beide
+Ordner erreichen die Pipeline. Weil jede Zeile auf
+`(heat_uid, round, phase, steam_id)` geschlüsselt ist, **ersetzt** der zweite
+Load den ersten, statt zu addieren — genau §7. Beim ersten Prüfversuch hatte
+mein Skript stattdessen addiert und 10 falsche Summen produziert; der Loader war
+von Anfang an richtig, die Prüfung war falsch.
+
+### Zwei Fallen, die Zeilen kosten würden
+- **Bots bekommen nie Punkte.** Sie teilen sich *eine* Steam-ID; sie zu
+  verbuchen erfände einen Punktesammler. Gefiltert wird über
+  `players[].player.ai` aus der Ergebnisdatei.
+- **Fremde Steam-IDs werden übersprungen.** Wer im Qualifying punktet und vor
+  dem Rennen geht, steht in den Session-Stats, aber in keiner Ergebnisdatei —
+  ein FK-Verstoß auf `base.drivers` würde bei einer Transaktion pro Datei das
+  **ganze Rennen** mitreißen. `_known_drivers()` fragt vorher.
+
+### Altbestand
+Rennen ohne `heat_uid` bekommen `legacy<JJJJMMTT>-<heat_id>`, damit die 159
+geladenen Rennen rückwirkend Heats, Punkte und Runden bekommen. Für sie wird
+**kein** `missing_journal` protokolliert — es kann keins geben, und 159
+Pseudofehler würden die echten begraben.
+
+### Tests
+63 Tests (`test_topdown.py` 40, `test_topdown_loader.py` 23), alle ohne DB
+lauffähig: `python3 -m pytest tests/test_topdown*.py --noconftest`.
+Die Loader-Tests laufen gegen eine aufzeichnende Fake-Verbindung und prüfen,
+**welche** Zeilen geschrieben würden und dass jeder Write ein Upsert ist.
+
+### Offen
+- Deploy Schritt 1+2, dann Migration 021 anwenden und den Loader gegen eine
+  echte DB gegenprüfen (die Fake-Verbindung prüft die Entscheidungen, nicht das
+  SQL — das SQL ist separat gegen `tsu_test` mit ROLLBACK geprüft).
+- Mart-Views + Profilseite (Schritt 4).
+- `move_raw_files.sh`: `null`-Qualis rutschen als Müllordner durch.

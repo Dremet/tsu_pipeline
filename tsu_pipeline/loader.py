@@ -289,6 +289,7 @@ def _load_race(data: dict, server: str, conn, json_path: Path | None = None) -> 
 
     participations_inserted = 0
     player_map: dict[int, str] = {}  # player_index → participation_id (humans only)
+    participation_ids: dict[int, str] = {}  # steam_id → participation_id
 
     for i, player in enumerate(data["players"]):
         _upsert_vehicle(conn, player["vehicle"])
@@ -304,6 +305,7 @@ def _load_race(data: dict, server: str, conn, json_path: Path | None = None) -> 
 
         if not is_ai:
             player_map[i] = pid
+            participation_ids[steam_id] = pid
 
         # AI drivers get the same checkpoint data as humans, so their lap
         # times are there for the taking. Skipping them left every bot on
@@ -348,6 +350,18 @@ def _load_race(data: dict, server: str, conn, json_path: Path | None = None) -> 
         if log_path is not None:
             _load_details(log_path, sid, player_map, conn)
 
+    # A topdown race is one round of a heat, so on its own it says nothing about
+    # points, participation or how the heat went. The sibling heat/session files
+    # and the controller's status journal supply that.
+    topdown_result = None
+    if json_path is not None and server == "topdown":
+        from .topdown_loader import load_topdown_extras
+
+        topdown_result = load_topdown_extras(
+            json_path, sid, server, conn, data,
+            participation_ids=participation_ids,
+        )
+
     return {
         "skipped": False,
         "skip_reason": None,
@@ -355,6 +369,7 @@ def _load_race(data: dict, server: str, conn, json_path: Path | None = None) -> 
         "participations": participations_inserted,
         "drivers_new": drivers_new,
         "laps": 0,
+        "topdown": topdown_result,
     }
 
 
