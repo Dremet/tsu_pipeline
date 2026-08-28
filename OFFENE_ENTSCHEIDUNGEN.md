@@ -69,3 +69,52 @@ Python portieren — ist nicht-trivial korrekt und ggf. Phase-3-Thema.
 **Fazit:** Alle 3 Rennen werden von `update_elo` korrekt als historisch
 eingestuft. Keine Doppelzählung möglich. Verifiziert durch read-only-Abfragen
 gegen racing-DB und History-JSON-Dateien am 2026-05-31.
+
+---
+
+## OE-5: Topdown — zählt Race Init oder Race Start für die Teilnahme?
+
+**STATUS: OFFEN — Rückfrage an McVizn**
+
+**Angenommen bis auf Weiteres:** Race **Start** entscheidet.
+
+**Kontext:** McVizns Text (PRIO A §4) behandelt „Race Init / Race Start" als
+einen Zeitpunkt. Das sind sie nicht. Am 18.08. gemessen (Heat 73): `#EventInit`
+21:16:37, Hakuub wechselt 21:16:54 in Spectator, `#EventRunning` 21:17:14 — bei
+Init war er Fahrer, beim Start Zuschauer. Bis zu einer halben Minute liegt
+dazwischen, und Spieler ändern in dieser Zeit ihre Meinung.
+
+**Warum Start:** erst dann steht das Feld wirklich; ein Wechsel davor ist eine
+Entscheidung *vor* dem Rennen, kein Abbruch *im* Rennen. Nach der Init-Lesart
+bekäme Hakuub einen DNF für ein Rennen, das er nie angetreten hat.
+
+**Umsetzung:** Das Journal speichert **beide** Momentaufnahmen (`reason:
+event_init` und `event_start`), die Auswertung nimmt Start und fällt auf Init
+zurück. Welche gegolten hat, steht als `grid_basis` in
+`base.topdown_race_status` — die Entscheidung ist also umkehrbar, ohne dass
+Daten fehlen.
+
+---
+
+## OE-6: Topdown — kostet ein DNF im Qualifying den „Completed Heat"?
+
+**STATUS: OFFEN — Rückfrage an McVizn**
+
+**Angenommen bis auf Weiteres:** nein, nur die drei **Rennen** zählen.
+
+**Kontext:** §2 nennt als Bedingung „Spieler hat an allen 3 Rennen des Heats
+teilgenommen" und „Alle 3 Rennen wurden gültig abgeschlossen" — spricht also von
+Rennen. Der letzte Punkt „Es liegt kein relevanter Disconnect, DNF oder
+Disqualification vor" sagt aber nicht, ob ein Quali-Abbruch „relevant" ist.
+
+**Realer Fall (18.08., Heat 73):** schizo_peek und Frozeni haben je ein
+**Qualifying** aufgegeben, alle drei Rennen aber sauber beendet. Nach der
+angenommenen Lesart ist ihr Heat `completed`.
+
+**Warum so:** ein Quali-Abbruch kostet einen Startplatz, nicht das Rennen. Wer
+alle drei Rennen fährt und beendet, hat den Heat komplettiert.
+
+**Umsetzung:** steckt allein in `topdown.heat_completed_for()` — eine Funktion,
+eine Zeile Änderung, falls McVizn es anders will. Die Quali-Status stehen
+ohnehin in `base.topdown_race_status` (`phase='quali'`), die Daten fehlen also
+in keinem Fall.

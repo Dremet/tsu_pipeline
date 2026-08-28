@@ -1911,3 +1911,70 @@ grep -n generateDetailsLog /home/tripleheat/server/config/game.json
 
 ### Migrationen (as postgres) — angewandt
 - `012_career_penalties.sql`, `013_career_build_requests.sql`.
+
+---
+
+## Session 2026-08-26 — Topdown-Statistik (McVizn PRIO A), Schritt 2: Regelwerk + Schema
+
+Vorgeschichte: Schritt 1 (Status-Ledger im Controller, Repo `tsura_server_scripts/topdown`)
+ist gebaut und getestet, **noch nicht deployt**. Details in
+`big-brain/wiki/projekte/tsu/topdown-statistik.md`.
+
+### Neu: `tsu_pipeline/topdown.py` — Fakten rein, Urteil raus
+Das Journal des Controllers ist reine Beobachtung und ändert sich nie; die
+Regeln (McVizn §3, §4.6, §4.7) leben hier und lassen sich über vorhandene
+Journale **neu rechnen**, wenn eine Regel nachgeschärft wird.
+
+- `Heat.verdicts(round, phase)` → pro Teilnehmer `completed` / `dnf` /
+  `disconnect`, plus `grid_basis` und drei Evidenz-Flags zur Nachvollziehbarkeit.
+- Wer beim Grid-Snapshot Zuschauer war, bekommt **keine Zeile** (§4.8) — nicht
+  eine Zeile mit leeren Feldern.
+- **Überrundung ist nie ein DNF** (§3). Das Modul sieht keine Rundenzahlen; wo
+  das Journal schweigt, ist das Urteil `unknown` und der Aufrufer entscheidet
+  bewusst über einen Fallback.
+- `heat_completed_for()` = §2 (alle drei Rennen, alle beendet, Late Join nie).
+
+### Punkte: gegen den kompletten Bestand geprüft
+`points_from_session()` liest Quali- und Rennpunkte getrennt aus TSUs eigener
+`session.json`, statt sie aus einer Punktetabelle nachzurechnen. Genau das macht
+§8 prüfbar: dieselbe Datei nennt auch die Summe, gegen die es stimmen muss.
+
+**197 von 197 Archivordnern rekonstruieren exakt.** McVizns Kernforderung
+(„Session zeigt 18, rekonstruierbar sind 15" darf nicht passieren) hält über den
+gesamten Bestand.
+
+⚠️ **Nicht der Heat-Stempel bestimmt, welches Rennen gemeint ist, sondern
+`m_finishedEventsCount` aus der Session-Datei selbst.** Beide können
+auseinanderlaufen: startet der Controller mitten in einer Session neu, beginnt
+sein Rundenzähler wieder bei 1, während die Session weiterzählt. Real passiert
+am 31.07. (Heat 2, `round=1`, aber bereits 4 beendete Events) — mit dem Stempel
+wären die Punkte des letzten Rennens dem ersten zugeschrieben worden.
+`round_disagreement()` meldet den Fall als Datenfehler, ohne die Zuordnung zu
+gefährden.
+
+### Migration 021 (`migrations/021_topdown_stats.sql`) — **noch nicht angewandt**
+`base.topdown_heats` · `topdown_events` (Quali hat bewusst keine `session_id`,
+ihre Ergebnisdatei wird serverseitig verworfen) · `topdown_points` ·
+`topdown_race_status` · `topdown_data_faults`.
+
+Idempotenz (§7) steckt in den **natürlichen Primärschlüsseln** aus Heat, Event
+und Spieler, nicht in einer Code-Konvention: dieselben Dateien erneut zu lesen
+aktualisiert Zeilen, statt irgendetwas doppelt zu zählen. Schlüssel ist
+`heat_uid`, nicht `heat_id` — der Zähler wurde schon zurückgesetzt (Testheats
+vom 31.07. tragen 99/100).
+
+`topdown_data_faults` gibt es, weil §8 Inkonsistenzen sichtbar verlangt, die
+Pipeline aber bei einer Exception **komplett stehenbleibt** (`ERROR_OCCURED`
+blockiert alle sieben Server). Fault protokollieren statt werfen.
+
+Gegen `tsu_test` mit `ROLLBACK` geprüft: Syntax gültig, DB unverändert.
+
+### Tests
+40 neue Tests in `tests/test_topdown.py`, jede Zeile von McVizns Fall-Tabelle
+einzeln. Laufen ohne DB (`--noconftest`).
+
+### Offen
+- **OE-5**: Race Init oder Race Start für die Teilnahme? (angenommen: Start)
+- **OE-6**: kostet ein Quali-DNF den „Completed Heat"? (angenommen: nein)
+- Loader-Anbindung (`loader.py` liest `_heat.json`/`_session.json`/Journal noch
+  nicht), Mart-Views und Profilseite stehen aus.
