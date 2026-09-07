@@ -105,6 +105,17 @@ for TYPE in hotlapping events heats tripleheat career topdown; do
       ) || echo "[$(timestamp)]   generate_autorun fehlgeschlagen (wird ignoriert)"
     fi
 
+    # Topdown: Streckenrekorde für die Lobby-Ansage aktualisieren (nicht-fatal).
+    # Der Server hat keine DB-Verbindung und liest die Rekorde als Datei.
+    if [ "${TYPE}" = "topdown" ]; then
+      (
+        trap - ERR; set +e
+        uv --project "${PIPELINE_DIR}" run python \
+          "${PIPELINE_DIR}/dump_topdown_records.py"
+      ) && echo "[$(timestamp)]   dump_topdown_records: OK" \
+        || echo "[$(timestamp)]   dump_topdown_records fehlgeschlagen (wird ignoriert)"
+    fi
+
     # Archivieren
     mv "$SUBDIR" "${ARCHIVE_DIR}/"
     echo "[$(timestamp)] Archiviert: ${TYPE}/${BN}"
