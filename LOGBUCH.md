@@ -27,6 +27,27 @@ Sicherung: `/home/claude/work/career-incident-20261003/` (privat), mit Schema,
 Career-Dump, Zustandsabzügen, Original-Renndateien und betroffenen Serverdateien.
 Deployment und produktive Korrektur folgen als ausdrücklich autorisierter Schritt.
 
+### Abschluss 2026-10-04
+
+Commit `54a1b59` produktiv unter `/home/data/tsu_pipeline` ausgerollt,
+Migration 022 angewandt und Korrektur atomar ausgeführt. 4.000 Backfill-Credits
+bei 20 Fahrern entfernt; die Solo-Belohnung einschließlich 22 Punkten entfernt.
+Sechs Upgrade-Stufen bei fünf Fahrern zurückgenommen (1.400 Credits Erstattung),
+fünf Undo-Einträge entwertet. Originaldaten bleiben erhalten.
+
+Fünf Serverfahrzeuge gezielt neu gebaut und sämtliche Tunings aus den Dateien
+gegen die Datenbankwerte geprüft. Vorhandene Fahrzeugnamen und Objectives in
+assignments.json erhalten; die übrigen Zuweisungen identisch. game.json
+byte-identisch. Temporäre Kaufsperre nach der Korrektur wieder entfernt.
+
+Produktive Prüfung als data mit READ ONLY: erneute Wertung zweimal 0 Writes,
+Challenge-Auswertung 0 Änderungen, Vorfall in Career-Views nicht enthalten,
+alle Guthaben nicht negativ, erwartete Guthaben der fünf Fahrer bestätigt.
+15 reguläre Saisonrennen und 169 Belohnungszeilen erhalten. Website erreichbar.
+Ausführung, Fahrzeugprüfung und Abschlussprüfung als JSON im Sicherungsverzeichnis.
+Keine offenen Arbeiten für diese Korrektur; allgemeine Prävention bleibt auf
+ausdrücklichen Wunsch ausgenommen.
+
 ---
 
 ## Session 2026-05-30 (autonomous)
