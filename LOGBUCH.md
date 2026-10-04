@@ -2,6 +2,36 @@
 
 Chronologische Aufzeichnung der Arbeit pro Session.
 
+## 2026-10-04 — Shyguy1001 / JBence: Verteilung vom Rennabend wiederhergestellt
+
+Auf ausdrücklichen Wunsch alle Upgrade-Umverteilungen der beiden Fahrer seit
+dem Rennen am Abend des 28.09. zurückgesetzt, einschließlich ihrer Undo-Aktionen.
+Die Originalfahrzeuge (generiert 28.09., 20:55) aus der Vorfallsicherung liefern
+alle neun damaligen Stufen; deren Kosten stimmen mit den in-game angekündigten
+Builds überein: Shyguy1001 6100 Credits, JBence 5450 Credits.
+
+Nach Berücksichtigung der ersten Korrektur:
+- Shyguy1001: Acceleration 4→3, Grip 6→4, Oversteering Braking 0→1;
+  zusätzlich 1000 Credits frei, Guthaben 1101.
+- JBence: Top Speed 10→9, Grip 7→4, Acceleration 3→4;
+  zusätzlich netto 650 Credits frei, Guthaben 773.
+
+Die wiederhergestellten Stufen bei Acceleration/Oversteering Braking machen
+die ursprünglichen Undo-Umverteilungen rückgängig; ihre Kosten sind in den
+Nettoerstattungen enthalten. Keine doppelte Erstattung der früher zurückgenommenen
+Grip-Stufen. Letzte Käufe bleiben als undone markiert.
+
+SQL zuerst auf der isolierten Datenkopie geprüft, dann atomar produktiv ausgeführt
+(ops/restore_upgrades_after_20260928.sql). Tabellen und Serverdateien vorher unter
+`/home/claude/work/career-upgrade-reset-20261004-200414/` gesichert.
+Prüfungen im SQL vergleichen alle Guthaben, alle übrigen Upgrade-Zeilen,
+Kaufmarker, Belohnungen und Objectives. Keine Änderungen außerhalb der beiden
+Fahrer; Solo-Rennen bleibt ausgeschlossen. Beide Fahrzeuge neu erzeugt, alle
+neun Werte aus .veh gegen DB verglichen und in der leeren Lobby neu geladen.
+Temporäre Kaufsperre aufgehoben. Abschlussprüfung: erwartete Stufen und Guthaben,
+15 reguläre Saisonrennen, 0 negative aktive Guthaben, 0 Belohnungen des Solo-Rennens.
+Keine offenen Arbeiten für diesen Auftrag.
+
 ## 2026-10-04 — Career: Ausschluss des Solo-Rennens vom 30.09.
 
 Autorisiert: Sicherung, dauerhafter Ausschluss von Session
