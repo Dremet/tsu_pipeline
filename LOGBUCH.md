@@ -2,6 +2,31 @@
 
 Chronologische Aufzeichnung der Arbeit pro Session.
 
+## 2026-10-04 — Career: Ausschluss des Solo-Rennens vom 30.09.
+
+Autorisiert: Sicherung, dauerhafter Ausschluss von Session
+`59ca1b40a0968ae0cac9ea74ae068733`, Rücknahme der dadurch nicht finanzierbaren
+Upgrades und Abschlussprüfung. Keine Änderungen an Trainingsmodus,
+Rennstartregeln oder Freigabe künftiger Veranstaltungen (Planpunkt 4 ausgenommen).
+
+Migration 022 speichert Ausschlüsse unabhängig von Rohdaten und Base-Zeilen.
+Trigger entfernen vorhandene Belohnungen und verhindern deren Wiederanlage;
+Career-Ergebnis-Views und Challenge-Auswertung berücksichtigen Ausschlüsse.
+Originale Ergebnisse bleiben in `base.*` erhalten.
+
+Vier Regressionstests auf isoliertem produktivem Schema bestanden, inklusive
+erneutem Einlesen der echten Vorfallsdatei. Migration zweimal angewandt.
+Komplette Korrektur auf einer aktuellen Datenkopie erfolgreich durchgespielt:
+Igiava Top Speed 7→6 (141 cr), Shyguy1001 Grip 7→6 (101 cr),
+Juanen Oversteering Braking 3→2 und Top Speed 8→7 (249 cr),
+darren.gurney Braking 4→3 (4 cr), JBence Grip 8→7 (123 cr).
+Die drei weiteren Fahrer hatten am Abend des 03.10. gekauft; unmittelbar vor
+Korrektur werden erwartete Guthaben, Zeitpunkte und Stufen erneut geprüft.
+
+Sicherung: `/home/claude/work/career-incident-20261003/` (privat), mit Schema,
+Career-Dump, Zustandsabzügen, Original-Renndateien und betroffenen Serverdateien.
+Deployment und produktive Korrektur folgen als ausdrücklich autorisierter Schritt.
+
 ---
 
 ## Session 2026-05-30 (autonomous)

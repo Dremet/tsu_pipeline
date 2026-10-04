@@ -52,6 +52,15 @@ def _season_for(cur, utc_start_time):
     return cur.fetchone()
 
 
+def _excluded_sessions(cur) -> set[str]:
+    """Exclusions survive re-imports; support DBs before migration 022."""
+    cur.execute("SELECT to_regclass('career.excluded_sessions') IS NOT NULL")
+    if not cur.fetchone()[0]:
+        return set()
+    cur.execute("SELECT session_id FROM career.excluded_sessions")
+    return {row[0] for row in cur.fetchall()}
+
+
 def compute_career_rewards(session_ids, cur) -> int:
     """Compute + upsert rewards for the given career sessions.
 
@@ -59,7 +68,10 @@ def compute_career_rewards(session_ids, cur) -> int:
     number of reward rows written.
     """
     written = 0
+    excluded = _excluded_sessions(cur)
     for sid in session_ids:
+        if sid in excluded:
+            continue
         cur.execute(
             "SELECT utc_start_time, server FROM base.race_sessions WHERE id = %s",
             (sid,))
@@ -162,6 +174,7 @@ def evaluate_objectives(session_ids, cur) -> int:
     cur.execute("SELECT to_regclass('career.objectives') IS NOT NULL")
     if not cur.fetchone()[0]:
         return 0            # migration 014 not applied yet
+    excluded = sorted(_excluded_sessions(cur))
     days = set()
     for sid in session_ids:
         cur.execute(
@@ -176,11 +189,12 @@ def evaluate_objectives(session_ids, cur) -> int:
         cur.execute(
             """SELECT rs.id FROM base.race_sessions rs
                 WHERE rs.server = 'career'
+                  AND NOT (rs.id = ANY(%s::text[]))
                   AND (rs.utc_start_time AT TIME ZONE 'Europe/Berlin')::date = %s
                   AND EXISTS (SELECT 1 FROM base.race_participations rp
                                WHERE rp.session_id = rs.id AND rp.is_ai = false
                                  AND rp.laps_completed >= 1)
-                ORDER BY rs.utc_start_time""", (day,))
+                ORDER BY rs.utc_start_time""", (excluded, day))
         race_ids = [r[0] for r in cur.fetchall()]
         races = []
         for rid in race_ids:

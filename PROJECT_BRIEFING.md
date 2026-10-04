@@ -1,5 +1,10 @@
 # TSU / TSURA — Projekt-Briefing
 
+Career-Korrektur (2026-10-04): `career.excluded_sessions` enthält dauerhaft
+ausgeschlossene Rennen. Pipeline, Belohnungs-Trigger und Career-Ergebnis-Views
+berücksichtigen diese Liste; Base-Ergebnisse bleiben als Beleg erhalten.
+Dies führt keine neue Freigaberegel für andere Veranstaltungen ein.
+
 Dieses Dokument ist der gemeinsame Startkontext für die Umbauarbeit an der
 Turbo-Sliders-Unlimited-Infrastruktur von André (Dremet). Es fasst Ziel,
 Ist-Zustand, Zielarchitektur und Reihenfolge zusammen. Es dient als Grundlage
