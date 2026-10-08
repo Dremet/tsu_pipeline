@@ -67,12 +67,14 @@ echo "[$(timestamp)] *** Pipeline gestartet ***"
 # topdown liefert nur Rennen — die Qualifyings laufen im Hotlapping-Modus und
 # werden schon serverseitig von move_raw_files.sh verworfen.
 ###############################################################################
-for TYPE in hotlapping events heats tripleheat career topdown; do
-  # /home/data/heats/ enthält Casual-Heat-Daten; Server-Label im DB ist 'casual_heat'
-  case "$TYPE" in
-    heats) SERVER="casual_heat" ;;
-    *)     SERVER="$TYPE" ;;
-  esac
+#
+# Casual Heat wurde am 2026-10-08 abgeschaltet: 'heats' wird nicht mehr
+# verarbeitet (alte Daten liegen unter /home/data/heats/archive, die DB-Historie
+# mit server='casual_heat' bleibt). Der Fun-Modes-Server (/home/data/fun) wird
+# bewusst NICHT geladen -- sein Ergebnisformat ist noch unbekannt, die Dateien
+# werden nur gesammelt.
+for TYPE in hotlapping events tripleheat career topdown; do
+  SERVER="$TYPE"
 
   BASE_DIR="/home/data/${TYPE}"
   ARCHIVE_DIR="${BASE_DIR}/archive"
