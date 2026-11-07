@@ -2,20 +2,25 @@
 """generate_autorun.py
 
 Generate or update the **`autorun.src`** file for the Turbo Sliders Unlimited
-hot-lapping dedicated server. The file is broadcast by the game server to show
-the current Top-10 lap times plus all drivers who are presently connected.
+hot-lapping dedicated server. The game server consumes the file at the start
+of each event and broadcasts it to the chat, showing the current Top-10 lap
+times plus every driver who was connected during the event that just ended.
 
 Key features
 ------------
-* Reads an `event.json` (path given as positional CLI argument).
-* Extracts the **Steam IDs of currently connected players**.
+* Reads an `event.json` (path given as positional CLI argument) and extracts
+  the **Steam IDs of the players in that event**. The file may be a JSON
+  ``null`` (aborted / empty events) or contain malformed player entries —
+  both are tolerated and simply mean "no active players".
 * Queries PostgreSQL for the latest hotlapping session group:
-  * Always ranks the full group first, **then** filters to `Top-10 OR active` —
-    so positions stay consistent.
-* Formats lap times as `M:SS.FFFF` and gaps as `+SS.FFFF` (empty for P1).
-* Pads every driver name to the **longest name length + 3 spaces**.
-* Writes one `/broadcast …` line per result into `autorun.src` (overwriting),
-  sets group ownership to **tsu** and permissions to `664`.
+  * Always ranks the full group first, **then** filters to `Top-10 OR active`
+    — so positions stay consistent.
+* Formats one rich-text line per result using the game's broadcast tags:
+  the name starts at `<pos=50>` (white), the lap time at `<pos=400>`
+  (yellow) with the gap to the best lap (orange, ``+0.0000`` for the
+  leader), and the vehicle at `<pos=800>`.
+* Writes one ``/broadcast …`` line per result into ``autorun.src``
+  (overwriting), sets group ownership to **tsu** and permissions to ``664``.
 * Database connection via `TSU_PROD_POSTGRES_URL` from `.env` or environment.
 
 Usage
@@ -36,7 +41,7 @@ import os
 import subprocess
 import sys
 from pathlib import Path
-from typing import List, Set, Tuple
+from typing import Any, List, Set, Tuple
 
 import psycopg
 from dotenv import load_dotenv
@@ -92,15 +97,37 @@ def format_lap(t_seconds: float) -> str:
 
 
 def format_diff(diff: float | None) -> str:
-    if diff is None:
-        return ""
-    return f"+{diff:06.4f}"
+    # The leader (pos 1) comes back as NULL from SQL; show +0.0000 for it.
+    value = 0.0 if diff is None else diff
+    return f"+{value:06.4f}"
 
 
 def extract_active_ids(event_json_path: str) -> Set[int]:
-    with open(event_json_path, "r", encoding="utf-8") as fp:
-        data = json.load(fp)
-    return {p["player"]["id"] for p in data.get("players", [])}
+    try:
+        with open(event_json_path, "r", encoding="utf-8") as fp:
+            data: Any = json.load(fp)
+    except (OSError, json.JSONDecodeError) as exc:
+        print(
+            f"[WARN] Could not read {event_json_path} ({exc}) — "
+            "assuming no active players",
+            file=sys.stderr,
+        )
+        return set()
+    if not isinstance(data, dict):
+        # Aborted/empty events are exported as a literal JSON "null".
+        print(
+            f"[WARN] {event_json_path} is not a JSON object — "
+            "assuming no active players",
+            file=sys.stderr,
+        )
+        return set()
+    return {
+        p["player"]["id"]
+        for p in data.get("players") or []
+        if isinstance(p, dict)
+        and isinstance(p.get("player"), dict)
+        and p["player"].get("id") is not None
+    }
 
 
 def fetch_results(active_ids: Set[int], db_url: str | None) -> List[Tuple]:
@@ -122,16 +149,14 @@ def build_broadcast_lines(rows: List[Tuple]) -> List[str]:
             unique.append(row)
             seen.add(row[1])
 
-    max_name_len = max((len(r[2]) for r in unique), default=0)
-    pad_width = max_name_len + 3
-
     lines = ["/broadcast ### Current Hotlapping Results:"]
     for pos, _sid, name, vehicle, lap, diff in unique:
-        lap_fmt = format_lap(lap)
-        diff_fmt = format_diff(diff)
-        space = " " if diff_fmt else ""
         lines.append(
-            f"/broadcast {pos}. {name.ljust(pad_width)}{lap_fmt}{space}{diff_fmt} with {vehicle}"
+            f"/broadcast {pos}. "
+            f"<pos=50><color=#ffffff>{name}</color> "
+            f"<mspace=16><pos=400><color=#ffff00>{format_lap(lap)}</color> "
+            f"<color=#ff8000>{format_diff(diff)}</color></mspace> "
+            f"<pos=800>{vehicle}</color></mspace>"
         )
     return lines
 
